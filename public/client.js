@@ -1,4 +1,4 @@
-// client.js (with chat focus and other fixes)
+// client.js (Corrected for deployment)
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
@@ -6,7 +6,9 @@ canvas.height = window.innerHeight;
 
 console.log("Client script started.");
 
-const socket = new WebSocket('ws://localhost:3000');
+// === FIX #2: Dynamic WebSocket connection for local and deployed environments ===
+const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const socket = new WebSocket(`${protocol}://${window.location.host}`);
 
 socket.onopen = () => {
     console.log("✅ WebSocket connection established successfully!");
