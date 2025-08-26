@@ -15,7 +15,7 @@ const WORLD_WIDTH = 3000;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50;
 const SAFE_SPAWN_RADIUS = 10 * GRID_CELL_SIZE;
-const INVENTORY_SLOTS = 8;
+const INVENTORY_SLOTS = 4;
 const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, result: 'Workbench' } };
 
 // --- Game State ---
@@ -82,7 +82,27 @@ wss.on('connection', ws => {
         switch (data.type) {
             case 'move': player.x = data.x; player.y = data.y; break;
             case 'hit-resource': { const resource = resources.find(r => r.id === data.resourceId); if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) { resource.hp--; if (resource.hp <= 0) { resource.harvested = true; let item, quantity, respawnTime; if (resource.type === 'tree') { item = 'Wood'; quantity = 2 + Math.floor(Math.random() * 3); respawnTime = 5 * 60 * 1000; } else { item = 'Stone'; quantity = 2 + Math.floor(Math.random() * 3); respawnTime = 6 * 60 * 1000; } addItemToPlayer(playerId, item, quantity); setTimeout(() => { resource.hp = resource.maxHp; resource.harvested = false; broadcast({ type: 'resource-update', resource }); }, respawnTime); } broadcast({ type: 'resource-update', resource }); } break; }
-            case 'place-item': { const { item, x, y } = data; const gridX = Math.floor(x / GRID_CELL_SIZE); const gridY = Math.floor(y / GRID_CELL_SIZE); const coordKey = `${gridX},${gridY}`; const hotbarSlot = player.hotbar[data.hotbarIndex]; if (hotbarSlot && hotbarSlot.item === item && getDistance(player, {x, y}) < 150 && isAreaFree(gridX, gridY, 1) && !structures[coordKey]) { hotbarSlot.quantity--; if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null; structures[coordKey] = { type: item === 'Wood' ? 'wood_wall' : 'stone_wall', x: gridX * GRID_CELL_SIZE, y: gridY * GRID_CELL_SIZE, }; markArea(gridX, gridY, 1, true); broadcast({ type: 'structure-update', structures }); ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar })); } break; }
+            case 'place-item': {
+                const { item, x, y } = data;
+                const gridX = Math.floor(x / GRID_CELL_SIZE);
+                const gridY = Math.floor(y / GRID_CELL_SIZE);
+                const coordKey = `${gridX},${gridY}`;
+                const hotbarSlot = player.hotbar[data.hotbarIndex];
+                if (hotbarSlot && hotbarSlot.item === item && getDistance(player, { x, y }) < 150 && isAreaFree(gridX, gridY, 1) && !structures[coordKey]) {
+                    hotbarSlot.quantity--;
+                    if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
+                    let structureType;
+                    if (item === 'Wood') structureType = 'wood_wall';
+                    else if (item === 'Stone') structureType = 'stone_wall';
+                    else if (item === 'Workbench') structureType = 'workbench';
+                    else structureType = item.toLowerCase();
+                    structures[coordKey] = { type: structureType, x: gridX * GRID_CELL_SIZE, y: gridY * GRID_CELL_SIZE };
+                    markArea(gridX, gridY, 1, true);
+                    broadcast({ type: 'structure-update', structures });
+                    ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                }
+                break;
+            }
             case 'craft-item': const recipe = RECIPES[data.itemName]; if (!recipe) return; let canCraft = true; for (const i in recipe.cost) { if (countItems(player, i) < recipe.cost[i]) { canCraft = false; break; } } if (canCraft) { for (const i in recipe.cost) { consumeItems(player, i, recipe.cost[i]); } addItemToPlayer(playerId, recipe.result, 1); } break;
             case 'chat': broadcast({ type: 'chat-message', sender: playerId, message: data.message }); break;
         }

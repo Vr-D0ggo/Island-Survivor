@@ -28,7 +28,7 @@ let structures = {}; // Start as empty object to prevent crashes
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
-const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'work.png' } };
+const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' } };
 
 // --- Input & UI State ---
 const keys = {}; window.addEventListener('keydown', e => keys[e.code] = true); window.addEventListener('keyup', e => keys[e.code] = false);
@@ -81,12 +81,32 @@ function updateHotbarUI() { const me = players[myPlayerId]; if (!me || !me.hotba
 // --- Player Interaction ---
 function playerMovement() { const player = players[myPlayerId]; if (!player) return; let dx = 0; let dy = 0; if (keys['KeyW']) dy -= 1; if (keys['KeyS']) dy += 1; if (keys['KeyA']) dx -= 1; if (keys['KeyD']) dx += 1; if (dx === 0 && dy === 0) return; const magnitude = Math.hypot(dx, dy); dx = (dx / magnitude) * player.speed; dy = (dy / magnitude) * player.speed; let predictedX = player.x + dx; let predictedY = player.y + dy; predictedX = Math.max(player.size, Math.min(WORLD_WIDTH - player.size, predictedX)); predictedY = Math.max(player.size, Math.min(WORLD_HEIGHT - player.size, predictedY)); let collision = false; for (const res of resources) { if (!res.harvested && Math.hypot(predictedX - res.x, predictedY - res.y) < player.size + res.size / 2) { collision = true; break; } } if (!collision) { for (const key in structures) { const s = structures[key]; if (predictedX > s.x - player.size && predictedX < s.x + GRID_CELL_SIZE + player.size && predictedY > s.y - player.size && predictedY < s.y + GRID_CELL_SIZE + player.size) { collision = true; break; } } } if (!collision) { player.x = predictedX; player.y = predictedY; socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y })); } }
 canvas.addEventListener('mousedown', e => { if (!myPlayerId || !players[myPlayerId] || e.button !== 0) return; const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left + camera.x; const mouseY = e.clientY - rect.top + camera.y; let closestResource = null; let closestDist = Infinity; for (const resource of resources) { if (!resource.harvested) { const dist = Math.hypot(mouseX - resource.x, mouseY - resource.y); if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; } } } if (closestResource) socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id })); });
-canvas.addEventListener('contextmenu', e => { e.preventDefault(); const me = players[myPlayerId]; if (!me || !me.hotbar) return; const selectedItem = me.hotbar[selectedHotbarSlot]; if (!selectedItem || (selectedItem.item !== 'Wood' && selectedItem.item !== 'Stone')) return; const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left + camera.x; const mouseY = e.clientY - rect.top + camera.y; const targetX = Math.floor(mouseX / GRID_CELL_SIZE) * GRID_CELL_SIZE + GRID_CELL_SIZE / 2; const targetY = Math.floor(mouseY / GRID_CELL_SIZE) * GRID_CELL_SIZE + GRID_CELL_SIZE / 2; socket.send(JSON.stringify({ type: 'place-item', item: selectedItem.item, x: targetX, y: targetY, hotbarIndex: selectedHotbarSlot })); });
+canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const me = players[myPlayerId];
+    if (!me || !me.hotbar) return;
+    const selectedItem = me.hotbar[selectedHotbarSlot];
+    if (!selectedItem) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left + camera.x;
+    const mouseY = e.clientY - rect.top + camera.y;
+    const targetX = Math.floor(mouseX / GRID_CELL_SIZE) * GRID_CELL_SIZE + GRID_CELL_SIZE / 2;
+    const targetY = Math.floor(mouseY / GRID_CELL_SIZE) * GRID_CELL_SIZE + GRID_CELL_SIZE / 2;
+    socket.send(JSON.stringify({ type: 'place-item', item: selectedItem.item, x: targetX, y: targetY, hotbarIndex: selectedHotbarSlot }));
+});
 
 // --- Drawing & Game Loop ---
 function drawPlayer(player, isMe) { if (!player || player.x === undefined) return; const x = isMe ? player.x : player.renderX; const y = isMe ? player.y : player.renderY; ctx.beginPath(); ctx.arc(x, y, player.size, 0, Math.PI * 2); ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)'; ctx.fill(); ctx.strokeStyle = '#333'; ctx.lineWidth = 3; ctx.stroke(); ctx.beginPath(); ctx.arc(x - player.size * 0.8, y, player.size * 0.4, 0, Math.PI * 2); ctx.arc(x + player.size * 0.8, y, player.size * 0.4, 0, Math.PI * 2); ctx.fillStyle = '#ccc'; ctx.fill(); }
 function drawResource(resource) { if (resource.harvested) { if (resource.type === 'tree') { ctx.fillStyle = '#654321'; ctx.beginPath(); ctx.arc(resource.x, resource.y, resource.size / 4, 0, Math.PI * 2); ctx.fill(); } return; } if (resource.type === 'tree') { ctx.fillStyle = '#8B4513'; ctx.fillRect(resource.x - resource.size/8, resource.y, resource.size/4, resource.size/4); ctx.fillStyle = '#228B22'; ctx.beginPath(); ctx.arc(resource.x, resource.y - resource.size/4, resource.size/2, 0, Math.PI * 2); ctx.fill(); } else if (resource.type === 'rock') { ctx.fillStyle = '#808080'; ctx.beginPath(); ctx.arc(resource.x, resource.y, resource.size/2, 0, Math.PI * 2); ctx.fill(); } if (resource.hp < resource.maxHp) { ctx.fillStyle = 'red'; ctx.fillRect(resource.x - resource.size/2, resource.y - resource.size/2 - 15, resource.size, 10); ctx.fillStyle = 'green'; const hpWidth = (resource.hp / resource.maxHp) * resource.size; ctx.fillRect(resource.x - resource.size/2, resource.y - resource.size/2 - 15, hpWidth, 10); } }
-function drawStructure(structure) { if (structure.type === 'wood_wall') ctx.fillStyle = '#8B4513'; else if (structure.type === 'stone_wall') ctx.fillStyle = '#808080'; else return; ctx.fillRect(structure.x, structure.y, GRID_CELL_SIZE, GRID_CELL_SIZE); ctx.strokeStyle = '#333'; ctx.strokeRect(structure.x, structure.y, GRID_CELL_SIZE, GRID_CELL_SIZE); }
+function drawStructure(structure) {
+    if (structure.type === 'wood_wall') ctx.fillStyle = '#8B4513';
+    else if (structure.type === 'stone_wall') ctx.fillStyle = '#808080';
+    else if (structure.type === 'workbench') ctx.fillStyle = '#deb887';
+    else return;
+    ctx.fillRect(structure.x, structure.y, GRID_CELL_SIZE, GRID_CELL_SIZE);
+    ctx.strokeStyle = '#333';
+    ctx.strokeRect(structure.x, structure.y, GRID_CELL_SIZE, GRID_CELL_SIZE);
+}
 function render() { ctx.save(); ctx.clearRect(0, 0, canvas.width, canvas.height); let darkness = 0; if (!dayNight.isDay) darkness = 0.8; ctx.translate(-camera.x, -camera.y); ctx.fillStyle = '#5c8b5c'; ctx.fillRect(0,0, WORLD_WIDTH, WORLD_HEIGHT); ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.lineWidth = 1; for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); } for (let y = 0; y <= WORLD_HEIGHT; y += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke(); } resources.forEach(drawResource); Object.values(structures).forEach(drawStructure); Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId)); ctx.restore(); ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
 let gameLoopStarted = false;
 function gameLoop() { if (players[myPlayerId]) { if (document.activeElement !== chatInput) playerMovement(); const me = players[myPlayerId]; camera.x = lerp(camera.x, me.x - canvas.width / 2, 0.1); camera.y = lerp(camera.y, me.y - canvas.height / 2, 0.1); for (const id in players) { if (id !== myPlayerId) { const p = players[id]; if (p && p.targetX !== undefined) { p.renderX = lerp(p.renderX, p.targetX, 0.2); p.renderY = lerp(p.renderY, p.targetY, 0.2); } } } } updateClockUI(); render(); requestAnimationFrame(gameLoop); }
