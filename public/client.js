@@ -308,7 +308,22 @@ chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') { if(chatInp
 function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if(!inventoryScreen.classList.contains('hidden')) updateInventoryUI(); }});
-function updateInventoryUI(){ const me = players[myPlayerId]; if(!me) return; inventoryGrid.innerHTML = ''; me.inventory.forEach((item) => { const slot = document.createElement('div'); slot.className = 'slot'; if(item){ slot.innerHTML = `<div class="item-icon" style="background-image: url('/icons/${item.item.toLowerCase()}.png')"></div><div class="item-quantity">${item.quantity}</div>`; } inventoryGrid.appendChild(slot); });}
+function updateInventoryUI(){
+    const me = players[myPlayerId];
+    if(!me) return;
+    inventoryGrid.innerHTML = '';
+    me.inventory.forEach((item, idx) => {
+        const slot = document.createElement('div');
+        slot.className = 'slot';
+        if(item){
+            slot.innerHTML = `<div class="item-icon" style="background-image: url('/icons/${item.item.toLowerCase()}.png')"></div><div class="item-quantity">${item.quantity}</div>`;
+        }
+        slot.addEventListener('click', () => {
+            socket.send(JSON.stringify({ type: 'swap-item', inventoryIndex: idx, hotbarIndex: selectedHotbarSlot }));
+        });
+        inventoryGrid.appendChild(slot);
+    });
+}
 window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); } }});
 function updateHotbarUI() { const me = players[myPlayerId]; hotbarSlots.forEach((slot, i) => { slot.classList.toggle('selected', i === selectedHotbarSlot); const item = me?.hotbar[i]; if (item) { slot.innerHTML = `<div class="item-icon" style="background-image: url('/icons/${item.item.toLowerCase()}.png')"></div><div class="item-quantity">${item.quantity}</div>`; } else { slot.innerHTML = `${i+1}`; } }); }
 function updateClockUI(){ const phaseEl = document.getElementById('clock-phase'); const timeEl = document.getElementById('clock-time'); phaseEl.textContent = dayNight.isDay ? 'Day' : 'Night'; const total = dayNight.isDay ? dayNight.DAY_DURATION : dayNight.NIGHT_DURATION; const current = dayNight.isDay ? dayNight.cycleTime : dayNight.cycleTime - dayNight.DAY_DURATION; const timeLeft = total - current; const minutes = Math.floor(timeLeft / 1000 / 60); const seconds = Math.floor((timeLeft / 1000) % 60); timeEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; }
