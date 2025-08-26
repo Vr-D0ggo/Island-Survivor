@@ -28,6 +28,7 @@ let structures = {}; // Start as empty object to prevent crashes
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
+const BLOCK_SIZE = GRID_CELL_SIZE / 4;
 const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' } };
 
 // --- Input & UI State ---
@@ -79,7 +80,40 @@ function updateInventoryUI(){ const me = players[myPlayerId]; if(!me || !me.inve
 function updateHotbarUI() { const me = players[myPlayerId]; if (!me || !me.hotbar) return; hotbarSlots.forEach((slot, i) => { slot.classList.toggle('selected', i === selectedHotbarSlot); const item = me.hotbar[i]; if (item) { const iconName = item.item.toLowerCase().replace(' ', '_'); slot.innerHTML = `<div class="item-icon" style="background-image: url('/icons/${iconName}.png')"></div><div class="item-quantity">${item.quantity}</div>`; } else { slot.innerHTML = `${i+1}`; } }); }
 
 // --- Player Interaction ---
-function playerMovement() { const player = players[myPlayerId]; if (!player) return; let dx = 0; let dy = 0; if (keys['KeyW']) dy -= 1; if (keys['KeyS']) dy += 1; if (keys['KeyA']) dx -= 1; if (keys['KeyD']) dx += 1; if (dx === 0 && dy === 0) return; const magnitude = Math.hypot(dx, dy); dx = (dx / magnitude) * player.speed; dy = (dy / magnitude) * player.speed; let predictedX = player.x + dx; let predictedY = player.y + dy; predictedX = Math.max(player.size, Math.min(WORLD_WIDTH - player.size, predictedX)); predictedY = Math.max(player.size, Math.min(WORLD_HEIGHT - player.size, predictedY)); let collision = false; for (const res of resources) { if (!res.harvested && Math.hypot(predictedX - res.x, predictedY - res.y) < player.size + res.size / 2) { collision = true; break; } } if (!collision) { for (const key in structures) { const s = structures[key]; if (predictedX > s.x - player.size && predictedX < s.x + GRID_CELL_SIZE + player.size && predictedY > s.y - player.size && predictedY < s.y + GRID_CELL_SIZE + player.size) { collision = true; break; } } } if (!collision) { player.x = predictedX; player.y = predictedY; socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y })); } }
+function playerMovement() {
+    const player = players[myPlayerId]; if (!player) return;
+    let dx = 0; let dy = 0;
+    if (keys['KeyW']) dy -= 1;
+    if (keys['KeyS']) dy += 1;
+    if (keys['KeyA']) dx -= 1;
+    if (keys['KeyD']) dx += 1;
+    if (dx === 0 && dy === 0) return;
+    const magnitude = Math.hypot(dx, dy);
+    dx = (dx / magnitude) * player.speed;
+    dy = (dy / magnitude) * player.speed;
+    let predictedX = player.x + dx;
+    let predictedY = player.y + dy;
+    predictedX = Math.max(player.size, Math.min(WORLD_WIDTH - player.size, predictedX));
+    predictedY = Math.max(player.size, Math.min(WORLD_HEIGHT - player.size, predictedY));
+    let collision = false;
+    for (const res of resources) {
+        if (res.harvested) continue;
+        const radius = res.type === 'tree' ? res.size / 8 : res.size / 2;
+        if (Math.hypot(predictedX - res.x, predictedY - res.y) < player.size + radius) { collision = true; break; }
+    }
+    if (!collision) {
+        for (const key in structures) {
+            const s = structures[key];
+            const size = s.size || (s.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
+            if (predictedX > s.x - player.size && predictedX < s.x + size + player.size && predictedY > s.y - player.size && predictedY < s.y + size + player.size) { collision = true; break; }
+        }
+    }
+    if (!collision) {
+        player.x = predictedX;
+        player.y = predictedY;
+        socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y }));
+    }
+}
 canvas.addEventListener('mousedown', e => { if (!myPlayerId || !players[myPlayerId] || e.button !== 0) return; const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left + camera.x; const mouseY = e.clientY - rect.top + camera.y; let closestResource = null; let closestDist = Infinity; for (const resource of resources) { if (!resource.harvested) { const dist = Math.hypot(mouseX - resource.x, mouseY - resource.y); if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; } } } if (closestResource) socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id })); });
 canvas.addEventListener('contextmenu', e => {
     e.preventDefault();
@@ -97,19 +131,100 @@ canvas.addEventListener('contextmenu', e => {
 
 // --- Drawing & Game Loop ---
 function drawPlayer(player, isMe) { if (!player || player.x === undefined) return; const x = isMe ? player.x : player.renderX; const y = isMe ? player.y : player.renderY; ctx.beginPath(); ctx.arc(x, y, player.size, 0, Math.PI * 2); ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)'; ctx.fill(); ctx.strokeStyle = '#333'; ctx.lineWidth = 3; ctx.stroke(); ctx.beginPath(); ctx.arc(x - player.size * 0.8, y, player.size * 0.4, 0, Math.PI * 2); ctx.arc(x + player.size * 0.8, y, player.size * 0.4, 0, Math.PI * 2); ctx.fillStyle = '#ccc'; ctx.fill(); }
-function drawResource(resource) { if (resource.harvested) { if (resource.type === 'tree') { ctx.fillStyle = '#654321'; ctx.beginPath(); ctx.arc(resource.x, resource.y, resource.size / 4, 0, Math.PI * 2); ctx.fill(); } return; } if (resource.type === 'tree') { ctx.fillStyle = '#8B4513'; ctx.fillRect(resource.x - resource.size/8, resource.y, resource.size/4, resource.size/4); ctx.fillStyle = '#228B22'; ctx.beginPath(); ctx.arc(resource.x, resource.y - resource.size/4, resource.size/2, 0, Math.PI * 2); ctx.fill(); } else if (resource.type === 'rock') { ctx.fillStyle = '#808080'; ctx.beginPath(); ctx.arc(resource.x, resource.y, resource.size/2, 0, Math.PI * 2); ctx.fill(); } if (resource.hp < resource.maxHp) { ctx.fillStyle = 'red'; ctx.fillRect(resource.x - resource.size/2, resource.y - resource.size/2 - 15, resource.size, 10); ctx.fillStyle = 'green'; const hpWidth = (resource.hp / resource.maxHp) * resource.size; ctx.fillRect(resource.x - resource.size/2, resource.y - resource.size/2 - 15, hpWidth, 10); } }
+function drawResource(resource) {
+    if (resource.harvested) {
+        if (resource.type === 'tree') {
+            ctx.fillStyle = '#654321';
+            ctx.beginPath();
+            ctx.arc(resource.x, resource.y, resource.size / 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        return;
+    }
+    if (resource.type === 'tree') {
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(resource.x - resource.size / 8, resource.y, resource.size / 4, resource.size / 4);
+        ctx.fillStyle = 'rgba(34,139,34,0.7)';
+        ctx.beginPath();
+        ctx.arc(resource.x, resource.y - resource.size / 4, resource.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (resource.type === 'rock') {
+        ctx.fillStyle = '#808080';
+        ctx.beginPath();
+        ctx.arc(resource.x, resource.y, resource.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    if (resource.hp < resource.maxHp) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(resource.x - resource.size / 2, resource.y - resource.size / 2 - 15, resource.size, 10);
+        ctx.fillStyle = 'green';
+        const hpWidth = (resource.hp / resource.maxHp) * resource.size;
+        ctx.fillRect(resource.x - resource.size / 2, resource.y - resource.size / 2 - 15, hpWidth, 10);
+    }
+}
 function drawStructure(structure) {
     if (structure.type === 'wood_wall') ctx.fillStyle = '#8B4513';
     else if (structure.type === 'stone_wall') ctx.fillStyle = '#808080';
     else if (structure.type === 'workbench') ctx.fillStyle = '#deb887';
     else return;
-    ctx.fillRect(structure.x, structure.y, GRID_CELL_SIZE, GRID_CELL_SIZE);
+    const size = structure.size || (structure.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
+    ctx.fillRect(structure.x, structure.y, size, size);
     ctx.strokeStyle = '#333';
-    ctx.strokeRect(structure.x, structure.y, GRID_CELL_SIZE, GRID_CELL_SIZE);
+    ctx.strokeRect(structure.x, structure.y, size, size);
 }
-function render() { ctx.save(); ctx.clearRect(0, 0, canvas.width, canvas.height); let darkness = 0; if (!dayNight.isDay) darkness = 0.8; ctx.translate(-camera.x, -camera.y); ctx.fillStyle = '#5c8b5c'; ctx.fillRect(0,0, WORLD_WIDTH, WORLD_HEIGHT); ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.lineWidth = 1; for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); } for (let y = 0; y <= WORLD_HEIGHT; y += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke(); } resources.forEach(drawResource); Object.values(structures).forEach(drawStructure); Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId)); ctx.restore(); ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+function render() {
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const transition = 60 * 1000;
+    const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
+    const cycleTime = dayNight.cycleTime % cycleDuration;
+    let darkness = 0;
+    if (cycleTime < dayNight.DAY_DURATION) {
+        if (cycleTime > dayNight.DAY_DURATION - transition) {
+            darkness = 0.8 * (cycleTime - (dayNight.DAY_DURATION - transition)) / transition;
+        }
+    } else {
+        const nightProgress = cycleTime - dayNight.DAY_DURATION;
+        if (nightProgress < dayNight.NIGHT_DURATION - transition) {
+            darkness = 0.8;
+        } else {
+            darkness = 0.8 * (1 - (nightProgress - (dayNight.NIGHT_DURATION - transition)) / transition);
+        }
+    }
+    ctx.translate(-camera.x, -camera.y);
+    ctx.fillStyle = '#5c8b5c';
+    ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); }
+    for (let y = 0; y <= WORLD_HEIGHT; y += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke(); }
+    resources.forEach(drawResource);
+    Object.values(structures).forEach(drawStructure);
+    Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
+    ctx.restore();
+    ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
 let gameLoopStarted = false;
-function gameLoop() { if (players[myPlayerId]) { if (document.activeElement !== chatInput) playerMovement(); const me = players[myPlayerId]; camera.x = lerp(camera.x, me.x - canvas.width / 2, 0.1); camera.y = lerp(camera.y, me.y - canvas.height / 2, 0.1); for (const id in players) { if (id !== myPlayerId) { const p = players[id]; if (p && p.targetX !== undefined) { p.renderX = lerp(p.renderX, p.targetX, 0.2); p.renderY = lerp(p.renderY, p.targetY, 0.2); } } } } updateClockUI(); render(); requestAnimationFrame(gameLoop); }
+function gameLoop() {
+    if (players[myPlayerId]) {
+        if (document.activeElement !== chatInput) playerMovement();
+        const me = players[myPlayerId];
+        camera.x = lerp(camera.x, me.x - canvas.width / 2, 0.1);
+        camera.y = lerp(camera.y, me.y - canvas.height / 2, 0.1);
+        for (const id in players) {
+            if (id !== myPlayerId) {
+                const p = players[id];
+                if (p && p.targetX !== undefined) {
+                    p.renderX = lerp(p.renderX, p.targetX, 0.2);
+                    p.renderY = lerp(p.renderY, p.targetY, 0.2);
+                }
+            }
+        }
+    }
+    render();
+    requestAnimationFrame(gameLoop);
+}
 
 // --- Other UI Listeners & Functions ---
 function createFloatingText(text, x, y) { const el = document.createElement('div'); el.className = 'floating-text'; el.textContent = text; document.body.appendChild(el); function updatePos(){ const screenX = x - camera.x; const screenY = y - camera.y; el.style.left = `${screenX}px`; el.style.top = `${screenY}px`; if (getComputedStyle(el).opacity > 0) requestAnimationFrame(updatePos); } updatePos(); setTimeout(() => el.remove(), 1500); }
@@ -120,4 +235,3 @@ window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.acti
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
 window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); } }});
 updateHotbarUI();
-function updateClockUI(){ const phaseEl = document.getElementById('clock-phase'); const timeEl = document.getElementById('clock-time'); phaseEl.textContent = dayNight.isDay ? 'Day' : 'Night'; const total = dayNight.isDay ? dayNight.DAY_DURATION : dayNight.NIGHT_DURATION; const current = dayNight.isDay ? dayNight.cycleTime : dayNight.cycleTime - dayNight.DAY_DURATION; const timeLeft = total - current; const minutes = Math.floor(timeLeft / 1000 / 60); const seconds = Math.floor((timeLeft / 1000) % 60); timeEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; }

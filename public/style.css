@@ -144,24 +144,6 @@ canvas {
     color: #999;
 }
 
-/* Clock */
-#clock {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    background: rgba(0,0,0,0.5);
-    padding: 10px;
-    border-radius: 5px;
-    text-align: center;
-}
-#clock-phase {
-    display: block;
-    font-size: 18px;
-}
-#clock-time {
-    font-size: 14px;
-}
-
 /* Floating Text */
 .floating-text {
     position: absolute;
