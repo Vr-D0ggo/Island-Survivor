@@ -81,8 +81,8 @@ canvas {
 }
 #inventory-grid {
     display: grid;
-    /* === CHANGE: Changed from 2 to 4 columns === */
-    grid-template-columns: repeat(4, 60px); 
+    /* Two columns for four total slots */
+    grid-template-columns: repeat(2, 60px);
     gap: 10px;
 }
 

@@ -14,7 +14,7 @@ app.use(express.static('public'));
 const WORLD_WIDTH = 3000;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50; // The world is a grid of 50x50 cells
-const INVENTORY_SLOTS = 8;
+const INVENTORY_SLOTS = 4; // Halved inventory size
 
 // --- Game State ---
 let players = {};
@@ -175,6 +175,15 @@ wss.on('connection', ws => {
                     broadcast({ type: 'structure-update', structures });
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                 }
+                break;
+            case 'swap-item':
+                const invIdx = data.inventoryIndex;
+                const hotIdx = data.hotbarIndex;
+                const invItem = player.inventory[invIdx];
+                const hotItem = player.hotbar[hotIdx];
+                player.inventory[invIdx] = hotItem || null;
+                player.hotbar[hotIdx] = invItem || null;
+                ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                 break;
             case 'chat':
                 broadcast({ type: 'chat-message', sender: playerId, message: data.message }); break;
