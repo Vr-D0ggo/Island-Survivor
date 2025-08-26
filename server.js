@@ -14,6 +14,7 @@ app.use(express.static('public'));
 const WORLD_WIDTH = 3000;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50;
+const BLOCK_SIZE = GRID_CELL_SIZE / 4;
 const SAFE_SPAWN_RADIUS = 10 * GRID_CELL_SIZE;
 const INVENTORY_SLOTS = 4;
 const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, result: 'Workbench' } };
@@ -81,7 +82,35 @@ wss.on('connection', ws => {
         const data = JSON.parse(message); const player = players[playerId]; if (!player) return;
         switch (data.type) {
             case 'move': player.x = data.x; player.y = data.y; break;
-            case 'hit-resource': { const resource = resources.find(r => r.id === data.resourceId); if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) { resource.hp--; if (resource.hp <= 0) { resource.harvested = true; let item, quantity, respawnTime; if (resource.type === 'tree') { item = 'Wood'; quantity = 2 + Math.floor(Math.random() * 3); respawnTime = 5 * 60 * 1000; } else { item = 'Stone'; quantity = 2 + Math.floor(Math.random() * 3); respawnTime = 6 * 60 * 1000; } addItemToPlayer(playerId, item, quantity); setTimeout(() => { resource.hp = resource.maxHp; resource.harvested = false; broadcast({ type: 'resource-update', resource }); }, respawnTime); } broadcast({ type: 'resource-update', resource }); } break; }
+            case 'hit-resource': {
+                const resource = resources.find(r => r.id === data.resourceId);
+                if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) {
+                    resource.hp--;
+                    if (resource.hp <= 0) {
+                        resource.harvested = true;
+                        let item, quantity, respawnTime;
+                        const sizeFactor = resource.size / (GRID_CELL_SIZE * 0.8);
+                        const base = Math.max(1, Math.round(sizeFactor));
+                        if (resource.type === 'tree') {
+                            item = 'Wood';
+                            quantity = base + Math.floor(Math.random() * base);
+                            respawnTime = 5 * 60 * 1000;
+                        } else {
+                            item = 'Stone';
+                            quantity = base + Math.floor(Math.random() * base);
+                            respawnTime = 6 * 60 * 1000;
+                        }
+                        addItemToPlayer(playerId, item, quantity);
+                        setTimeout(() => {
+                            resource.hp = resource.maxHp;
+                            resource.harvested = false;
+                            broadcast({ type: 'resource-update', resource });
+                        }, respawnTime);
+                    }
+                    broadcast({ type: 'resource-update', resource });
+                }
+                break;
+            }
             case 'place-item': {
                 const { item, x, y } = data;
                 const gridX = Math.floor(x / GRID_CELL_SIZE);
@@ -96,7 +125,10 @@ wss.on('connection', ws => {
                     else if (item === 'Stone') structureType = 'stone_wall';
                     else if (item === 'Workbench') structureType = 'workbench';
                     else structureType = item.toLowerCase();
-                    structures[coordKey] = { type: structureType, x: gridX * GRID_CELL_SIZE, y: gridY * GRID_CELL_SIZE };
+                    const size = structureType === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE;
+                    const baseX = gridX * GRID_CELL_SIZE + (GRID_CELL_SIZE - size) / 2;
+                    const baseY = gridY * GRID_CELL_SIZE + (GRID_CELL_SIZE - size) / 2;
+                    structures[coordKey] = { type: structureType, x: baseX, y: baseY, size };
                     markArea(gridX, gridY, 1, true);
                     broadcast({ type: 'structure-update', structures });
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
