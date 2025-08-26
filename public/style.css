@@ -75,15 +75,73 @@ canvas {
     padding: 20px;
     border-radius: 10px;
     pointer-events: auto;
+    display: flex; /* Use flexbox for side-by-side panels */
+    gap: 20px;
+    width: 600px; /* Make the whole container wider */
 }
 #inventory-screen.hidden {
     display: none;
 }
+#inventory-panel {
+    flex-basis: 50%;
+}
 #inventory-grid {
     display: grid;
-    /* === CHANGE: Changed from 2 to 4 columns === */
     grid-template-columns: repeat(4, 60px); 
     gap: 10px;
+}
+
+/* === NEW: Crafting Panel Styles === */
+#crafting-panel {
+    flex-basis: 50%;
+    border-left: 1px solid #666;
+    padding-left: 20px;
+}
+#recipe-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.recipe {
+    background-color: #444;
+    border: 1px solid #888;
+    padding: 8px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.recipe-icon {
+    width: 40px;
+    height: 40px;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    flex-shrink: 0;
+}
+.recipe-details {
+    flex-grow: 1;
+}
+.recipe-name {
+    font-weight: bold;
+}
+.recipe-cost {
+    font-size: 0.8em;
+    color: #ccc;
+}
+.recipe button {
+    padding: 5px 10px;
+    background-color: #5a5;
+    border: 1px solid #383;
+    color: white;
+    cursor: pointer;
+    border-radius: 3px;
+}
+.recipe.disabled button {
+    background-color: #666;
+    border-color: #444;
+    cursor: not-allowed;
+    color: #999;
 }
 
 /* Clock */
