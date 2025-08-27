@@ -28,7 +28,9 @@ let structures = {}; // Start as empty object to prevent crashes
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
-const BLOCK_SIZE = GRID_CELL_SIZE / 4;
+const BLOCK_SIZE = GRID_CELL_SIZE / 2;
+const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
+const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' } };
 
 // --- Input & UI State ---
@@ -37,6 +39,12 @@ const hotbarSlots = [document.getElementById('hotbar-0'), document.getElementByI
 const inventoryScreen = document.getElementById('inventory-screen'); const inventoryGrid = document.getElementById('inventory-grid'); const recipeList = document.getElementById('recipe-list');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 let selectedHotbarSlot = 0;
+let mousePos = { x: 0, y: 0 };
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
 
 // --- Helper Functions ---
 function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
@@ -114,7 +122,27 @@ function playerMovement() {
         socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y }));
     }
 }
-canvas.addEventListener('mousedown', e => { if (!myPlayerId || !players[myPlayerId] || e.button !== 0) return; const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left + camera.x; const mouseY = e.clientY - rect.top + camera.y; let closestResource = null; let closestDist = Infinity; for (const resource of resources) { if (!resource.harvested) { const dist = Math.hypot(mouseX - resource.x, mouseY - resource.y); if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; } } } if (closestResource) socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id })); });
+canvas.addEventListener('mousedown', e => {
+    if (!myPlayerId || !players[myPlayerId] || e.button !== 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left + camera.x;
+    const mouseY = e.clientY - rect.top + camera.y;
+    let closestResource = null; let closestDist = Infinity;
+    for (const resource of resources) {
+        if (!resource.harvested) {
+            const dist = Math.hypot(mouseX - resource.x, mouseY - resource.y);
+            if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; }
+        }
+    }
+    if (closestResource) {
+        socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id }));
+    } else {
+        const blockX = Math.floor(mouseX / BLOCK_SIZE);
+        const blockY = Math.floor(mouseY / BLOCK_SIZE);
+        const key = `b${blockX},${blockY}`;
+        if (structures[key]) socket.send(JSON.stringify({ type: 'hit-structure', key }));
+    }
+});
 canvas.addEventListener('contextmenu', e => {
     e.preventDefault();
     const me = players[myPlayerId];
@@ -124,13 +152,37 @@ canvas.addEventListener('contextmenu', e => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
-    const targetX = Math.floor(mouseX / GRID_CELL_SIZE) * GRID_CELL_SIZE + GRID_CELL_SIZE / 2;
-    const targetY = Math.floor(mouseY / GRID_CELL_SIZE) * GRID_CELL_SIZE + GRID_CELL_SIZE / 2;
+    const snap = selectedItem.item === 'Workbench' ? GRID_CELL_SIZE : BLOCK_SIZE;
+    const targetX = Math.floor(mouseX / snap) * snap;
+    const targetY = Math.floor(mouseY / snap) * snap;
     socket.send(JSON.stringify({ type: 'place-item', item: selectedItem.item, x: targetX, y: targetY, hotbarIndex: selectedHotbarSlot }));
 });
 
 // --- Drawing & Game Loop ---
-function drawPlayer(player, isMe) { if (!player || player.x === undefined) return; const x = isMe ? player.x : player.renderX; const y = isMe ? player.y : player.renderY; ctx.beginPath(); ctx.arc(x, y, player.size, 0, Math.PI * 2); ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)'; ctx.fill(); ctx.strokeStyle = '#333'; ctx.lineWidth = 3; ctx.stroke(); ctx.beginPath(); ctx.arc(x - player.size * 0.8, y, player.size * 0.4, 0, Math.PI * 2); ctx.arc(x + player.size * 0.8, y, player.size * 0.4, 0, Math.PI * 2); ctx.fillStyle = '#ccc'; ctx.fill(); }
+function drawPlayer(player, isMe) {
+    if (!player || player.x === undefined) return;
+    const x = isMe ? player.x : player.renderX;
+    const y = isMe ? player.y : player.renderY;
+    ctx.beginPath();
+    ctx.arc(x, y, player.size, 0, Math.PI * 2);
+    ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)';
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    let angle = 0;
+    if (isMe) {
+        angle = Math.atan2(mousePos.y - (y - camera.y), mousePos.x - (x - camera.x));
+    }
+    const eyeOffset = player.size * 0.8;
+    const ex = Math.cos(angle) * eyeOffset;
+    const ey = Math.sin(angle) * eyeOffset;
+    ctx.beginPath();
+    ctx.arc(x + ex, y + ey, player.size * 0.4, 0, Math.PI * 2);
+    ctx.arc(x - ex, y - ey, player.size * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ccc';
+    ctx.fill();
+}
 function drawResource(resource) {
     if (resource.harvested) {
         if (resource.type === 'tree') {
@@ -142,12 +194,19 @@ function drawResource(resource) {
         return;
     }
     if (resource.type === 'tree') {
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect(resource.x - resource.size / 8, resource.y, resource.size / 4, resource.size / 4);
-        ctx.fillStyle = 'rgba(34,139,34,0.7)';
-        ctx.beginPath();
-        ctx.arc(resource.x, resource.y - resource.size / 4, resource.size / 2, 0, Math.PI * 2);
-        ctx.fill();
+        const trunkSize = resource.size / 4;
+        ctx.drawImage(treeTrunkImg, resource.x - trunkSize / 2, resource.y - trunkSize / 2, trunkSize, trunkSize);
+        if (resource.phase === 1) {
+            ctx.drawImage(treeTopImg, resource.x - resource.size / 2, resource.y - resource.size / 2, resource.size, resource.size);
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-atop';
+            const grad = ctx.createRadialGradient(resource.x, resource.y, 0, resource.x, resource.y, resource.size / 2);
+            grad.addColorStop(0, 'rgba(0,255,0,0.4)');
+            grad.addColorStop(1, 'rgba(0,255,0,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(resource.x - resource.size / 2, resource.y - resource.size / 2, resource.size, resource.size);
+            ctx.restore();
+        }
     } else if (resource.type === 'rock') {
         ctx.fillStyle = '#808080';
         ctx.beginPath();
