@@ -14,7 +14,8 @@ app.use(express.static('public'));
 const WORLD_WIDTH = 3000;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50;
-const BLOCK_SIZE = GRID_CELL_SIZE / 4;
+const BLOCK_SUBDIVISIONS = 2;
+const BLOCK_SIZE = GRID_CELL_SIZE / BLOCK_SUBDIVISIONS;
 const SAFE_SPAWN_RADIUS = 10 * GRID_CELL_SIZE;
 const INVENTORY_SLOTS = 4;
 const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, result: 'Workbench' } };
@@ -25,6 +26,7 @@ let resources = [];
 let structures = {};
 let nextResourceId = 0;
 let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
+let blockGrid = Array(WORLD_WIDTH / BLOCK_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / BLOCK_SIZE).fill(false));
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
 
 // --- World Generation ---
@@ -46,7 +48,9 @@ function generateWorld() {
             if (getDistance({x: worldX, y: worldY}, worldCenter) < SAFE_SPAWN_RADIUS) continue;
             if (isAreaFree(gridX, gridY, size)) {
                 markArea(gridX, gridY, size, true);
-                resources.push({ id: nextResourceId++, type, x: worldX, y: worldY, hp: type === 'tree' ? 5 : 6, maxHp: type === 'tree' ? 5 : 6, harvested: false, size: size * GRID_CELL_SIZE * 0.8 });
+                const hpBase = type === 'tree' ? 5 : 6;
+                const maxHp = hpBase * size;
+                resources.push({ id: nextResourceId++, type, x: worldX, y: worldY, hp: maxHp, maxHp, harvested: false, size: size * GRID_CELL_SIZE * 0.8, phase: 1, apples: type === 'tree' && Math.random() < 1/40 ? 1 + Math.floor(Math.random()*4) : 0 });
                 placed++;
             }
         }
@@ -86,6 +90,12 @@ wss.on('connection', ws => {
                 const resource = resources.find(r => r.id === data.resourceId);
                 if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) {
                     resource.hp--;
+                    if (resource.type === 'tree' && resource.phase === 1 && resource.hp <= resource.maxHp / 2) {
+                        resource.phase = 2;
+                        if (resource.apples > 0) addItemToPlayer(playerId, 'Apple', resource.apples);
+                        addItemToPlayer(playerId, 'Leaf', 1 + Math.floor(Math.random() * 10));
+                        addItemToPlayer(playerId, 'Wood', 1 + Math.floor(Math.random() * 2));
+                    }
                     if (resource.hp <= 0) {
                         resource.harvested = true;
                         let item, quantity, respawnTime;
@@ -104,6 +114,10 @@ wss.on('connection', ws => {
                         setTimeout(() => {
                             resource.hp = resource.maxHp;
                             resource.harvested = false;
+                            if (resource.type === 'tree') {
+                                resource.phase = 1;
+                                resource.apples = Math.random() < 1/40 ? 1 + Math.floor(Math.random()*4) : 0;
+                            }
                             broadcast({ type: 'resource-update', resource });
                         }, respawnTime);
                     }
@@ -113,25 +127,61 @@ wss.on('connection', ws => {
             }
             case 'place-item': {
                 const { item, x, y } = data;
-                const gridX = Math.floor(x / GRID_CELL_SIZE);
-                const gridY = Math.floor(y / GRID_CELL_SIZE);
-                const coordKey = `${gridX},${gridY}`;
                 const hotbarSlot = player.hotbar[data.hotbarIndex];
-                if (hotbarSlot && hotbarSlot.item === item && getDistance(player, { x, y }) < 150 && isAreaFree(gridX, gridY, 1) && !structures[coordKey]) {
-                    hotbarSlot.quantity--;
-                    if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
-                    let structureType;
-                    if (item === 'Wood') structureType = 'wood_wall';
-                    else if (item === 'Stone') structureType = 'stone_wall';
-                    else if (item === 'Workbench') structureType = 'workbench';
-                    else structureType = item.toLowerCase();
-                    const size = structureType === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE;
-                    const baseX = gridX * GRID_CELL_SIZE + (GRID_CELL_SIZE - size) / 2;
-                    const baseY = gridY * GRID_CELL_SIZE + (GRID_CELL_SIZE - size) / 2;
-                    structures[coordKey] = { type: structureType, x: baseX, y: baseY, size };
-                    markArea(gridX, gridY, 1, true);
+                if (!hotbarSlot || hotbarSlot.item !== item || getDistance(player, { x, y }) >= 150) break;
+                let structureType;
+                if (item === 'Wood') structureType = 'wood_wall';
+                else if (item === 'Stone') structureType = 'stone_wall';
+                else if (item === 'Workbench') structureType = 'workbench';
+                else structureType = item.toLowerCase();
+                if (structureType === 'workbench') {
+                    const gridX = Math.floor(x / GRID_CELL_SIZE);
+                    const gridY = Math.floor(y / GRID_CELL_SIZE);
+                    const coordKey = `w${gridX},${gridY}`;
+                    if (isAreaFree(gridX, gridY, 1) && !structures[coordKey]) {
+                        hotbarSlot.quantity--;
+                        if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
+                        const baseX = gridX * GRID_CELL_SIZE;
+                        const baseY = gridY * GRID_CELL_SIZE;
+                        structures[coordKey] = { type: structureType, x: baseX, y: baseY, size: GRID_CELL_SIZE };
+                        markArea(gridX, gridY, 1, true);
+                        broadcast({ type: 'structure-update', structures });
+                        ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                    }
+                } else {
+                    const blockX = Math.floor(x / BLOCK_SIZE);
+                    const blockY = Math.floor(y / BLOCK_SIZE);
+                    const coordKey = `b${blockX},${blockY}`;
+                    if (!blockGrid[blockX][blockY] && !structures[coordKey]) {
+                        hotbarSlot.quantity--;
+                        if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
+                        structures[coordKey] = { type: structureType, x: blockX * BLOCK_SIZE, y: blockY * BLOCK_SIZE, size: BLOCK_SIZE };
+                        blockGrid[blockX][blockY] = true;
+                        broadcast({ type: 'structure-update', structures });
+                        ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                    }
+                }
+                break;
+            }
+            case 'hit-structure': {
+                const { key } = data;
+                const structure = structures[key];
+                if (!structure) break;
+                const center = { x: structure.x + structure.size / 2, y: structure.y + structure.size / 2 };
+                if (getDistance(player, center) < player.size + structure.size) {
+                    if (structure.type === 'wood_wall' || structure.type === 'stone_wall') {
+                        const item = structure.type === 'wood_wall' ? 'Wood' : 'Stone';
+                        addItemToPlayer(playerId, item, 1);
+                    }
+                    delete structures[key];
+                    if (key.startsWith('b')) {
+                        const [bx, by] = key.slice(1).split(',').map(Number);
+                        blockGrid[bx][by] = false;
+                    } else if (key.startsWith('w')) {
+                        const [gx, gy] = key.slice(1).split(',').map(Number);
+                        markArea(gx, gy, 1, false);
+                    }
                     broadcast({ type: 'structure-update', structures });
-                    ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                 }
                 break;
             }
