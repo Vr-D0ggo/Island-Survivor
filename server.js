@@ -38,7 +38,7 @@ let boars = [];
 let nextBoarId = 0;
 let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
 let blockGrid = Array(WORLD_WIDTH / BLOCK_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / BLOCK_SIZE).fill(false));
-let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
+let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
 
 // --- World Generation ---
 function isAreaFree(gridX, gridY, size) { for (let x = gridX; x < gridX + size; x++) { for (let y = gridY; y < gridY + size; y++) { if (x < 0 || x >= grid.length || y < 0 || y >= grid[0].length || grid[x][y]) return false; } } return true; }
@@ -72,8 +72,11 @@ function generateWorld() {
     spawnBoars(10);
 }
 
-function createBoar(x, y, packId, isLeader = false) {
-    const sizeFactor = 0.8 + Math.random() * 0.7; // 0.8 - 1.5
+function createBoar(x, y, packId, isLeader = false, sizeFactor = null, color = null) {
+    if (sizeFactor === null) sizeFactor = isLeader ? 1.4 + Math.random() * 0.2 : 0.8 + Math.random() * 0.5;
+    if (isLeader) {
+        color = color || (Math.random() < 0.5 ? 'black' : 'silver');
+    }
     const size = 20 * sizeFactor;
     const hp = 15 * sizeFactor;
     return {
@@ -90,6 +93,7 @@ function createBoar(x, y, packId, isLeader = false) {
         cooldown: 0,
         packId,
         isLeader,
+        color,
         vx: 0,
         vy: 0,
         wanderTimer: 0
@@ -103,10 +107,17 @@ function spawnBoars(count) {
         const packId = nextBoarId;
         const centerX = Math.random() * WORLD_WIDTH;
         const centerY = Math.random() * WORLD_HEIGHT;
+        const leaderSize = 1.4 + Math.random() * 0.2;
+        const leaderColor = Math.random() < 0.5 ? 'black' : 'silver';
         for (let j = 0; j < currentPackSize; j++) {
             const offsetX = Math.random() * 40 - 20;
             const offsetY = Math.random() * 40 - 20;
-            boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId, j === 0));
+            if (j === 0) {
+                boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId, true, leaderSize, leaderColor));
+            } else {
+                const followerSize = 0.8 + Math.random() * 0.5;
+                boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId, false, Math.min(followerSize, leaderSize - 0.1)));
+            }
         }
         i += currentPackSize;
     }
@@ -158,7 +169,7 @@ function isBlocked(x, y, size) {
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
     ws.id = playerId;
-    const newPlayer = { id: playerId, x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10 };
+    const newPlayer = { id: playerId, x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0 };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
@@ -173,6 +184,9 @@ wss.on('connection', ws => {
         const data = JSON.parse(message); const player = players[playerId]; if (!player) return;
         switch (data.type) {
             case 'move': player.x = data.x; player.y = data.y; break;
+            case 'held-item':
+                if (Number.isInteger(data.index)) player.heldIndex = data.index;
+                break;
             case 'hit-resource': {
                 const resource = resources.find(r => r.id === data.resourceId);
                 if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) {
@@ -438,24 +452,55 @@ function gameLoop() {
     }
 
     for (const boar of boars) {
-        if (boar.wanderTimer <= 0) {
-            const angle = Math.random() * Math.PI * 2;
-            boar.vx = Math.cos(angle) * boar.speed;
-            boar.vy = Math.sin(angle) * boar.speed;
-            boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
+        if (boar.aggressive && !players[boar.target]) {
+            boar.aggressive = false;
+            boar.target = null;
         }
-        const pack = packMap[boar.packId];
-        if (pack && pack.leader) {
-            if (!boar.isLeader) {
-                const dx = pack.leader.x - boar.x;
-                const dy = pack.leader.y - boar.y;
-                const dist = Math.hypot(dx, dy);
-                if (dist > 20) {
-                    boar.vx += (dx / dist) * 0.05;
-                    boar.vy += (dy / dist) * 0.05;
+
+        if (boar.aggressive && players[boar.target]) {
+            const target = players[boar.target];
+            const dx = target.x - boar.x;
+            const dy = target.y - boar.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            boar.vx = (dx / dist) * boar.speed * 1.5;
+            boar.vy = (dy / dist) * boar.speed * 1.5;
+            boar.wanderTimer = 30;
+        } else {
+            let baitTarget = null;
+            let closest = Infinity;
+            for (const id in players) {
+                const p = players[id];
+                const held = p.hotbar[p.heldIndex];
+                if (held && (held.item === 'Apple' || held.item === 'Cooked Meat')) {
+                    const d = getDistance(p, boar);
+                    if (d < 250 && d < closest) { closest = d; baitTarget = p; }
                 }
             }
+            if (baitTarget) {
+                const dx = baitTarget.x - boar.x;
+                const dy = baitTarget.y - boar.y;
+                const dist = Math.hypot(dx, dy) || 1;
+                boar.vx = (dx / dist) * boar.speed;
+                boar.vy = (dy / dist) * boar.speed;
+            } else if (boar.wanderTimer <= 0) {
+                const angle = Math.random() * Math.PI * 2;
+                boar.vx = Math.cos(angle) * boar.speed;
+                boar.vy = Math.sin(angle) * boar.speed;
+                boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
+            }
         }
+
+        const pack = packMap[boar.packId];
+        if (pack && pack.leader && !boar.isLeader && !boar.aggressive) {
+            const dx = pack.leader.x - boar.x;
+            const dy = pack.leader.y - boar.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 20) {
+                boar.vx += (dx / dist) * 0.05;
+                boar.vy += (dy / dist) * 0.05;
+            }
+        }
+
         const nx = boar.x + boar.vx;
         const ny = boar.y + boar.vy;
         if (!isBlocked(nx, ny, boar.size)) {
