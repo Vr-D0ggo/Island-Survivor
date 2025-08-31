@@ -32,13 +32,15 @@ let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_
 const BLOCK_SIZE = GRID_CELL_SIZE / 2;
 const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
+const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ITEM_ICONS = {
     'Wooden Axe': 'wood.png',
     'Wooden Pickaxe': 'wood.png',
     'Wooden Sword': 'wood.png',
     'Stone Axe': 'stone.png',
     'Stone Pickaxe': 'stone.png',
-    'Stone Sword': 'stone.png'
+    'Stone Sword': 'stone.png',
+    'Workbench': 'workbench.png'
 };
 const RECIPES = {
     Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' },
@@ -55,6 +57,7 @@ const keys = {}; window.addEventListener('keydown', e => keys[e.code] = true); w
 const hotbarSlots = [document.getElementById('hotbar-0'), document.getElementById('hotbar-1'), document.getElementById('hotbar-2'), document.getElementById('hotbar-3')];
 const inventoryScreen = document.getElementById('inventory-screen'); const inventoryGrid = document.getElementById('inventory-grid'); const recipeList = document.getElementById('recipe-list');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
+const healthFill = document.getElementById('player-health-fill');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 canvas.addEventListener('mousemove', e => {
@@ -66,6 +69,38 @@ canvas.addEventListener('mousemove', e => {
 // --- Helper Functions ---
 function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
 function initializePlayerForRender(player) { if (player) { player.renderX = player.x; player.renderY = player.y; } }
+function createItemIconCanvas(name) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const ictx = c.getContext('2d');
+    if (name === 'Boar Meat') {
+        ictx.fillStyle = '#a33';
+        ictx.fillRect(4, 4, 24, 24);
+        ictx.strokeStyle = '#711';
+        ictx.strokeRect(4, 4, 24, 24);
+    } else if (name === 'Tusk') {
+        ictx.fillStyle = '#fff';
+        ictx.beginPath();
+        ictx.moveTo(8, 24);
+        ictx.lineTo(16, 4);
+        ictx.lineTo(24, 24);
+        ictx.closePath();
+        ictx.fill();
+        ictx.strokeStyle = '#ccc';
+        ictx.stroke();
+    } else {
+        ictx.fillStyle = '#777';
+        ictx.fillRect(4, 4, 24, 24);
+    }
+    c.className = 'item-icon';
+    return c;
+}
+function updatePlayerHealthBar() {
+    const me = players[myPlayerId];
+    if (me && healthFill) {
+        healthFill.style.width = `${(me.hp / me.maxHp) * 100}%`;
+    }
+}
 
 // --- WebSocket Message Handling ---
 socket.onmessage = event => {
@@ -83,6 +118,7 @@ socket.onmessage = event => {
             dayNight = data.dayNight || dayNight;
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
+            updatePlayerHealthBar();
             break;
         case 'game-state':
             const lastIsDay = dayNight.isDay;
@@ -109,6 +145,7 @@ socket.onmessage = event => {
                     }
                 }
             }
+            updatePlayerHealthBar();
             break;
         case 'player-join': if (data.player.id !== myPlayerId) { players[data.player.id] = data.player; initializePlayerForRender(players[data.player.id]); } break;
         case 'player-leave': delete players[data.playerId]; break;
@@ -122,15 +159,62 @@ socket.onmessage = event => {
             if (idx !== -1) boars[idx] = data.boar; else boars.push(data.boar);
             break;
         }
-        case 'player-hit': if (players[myPlayerId]) players[myPlayerId].hp = data.hp; break;
+        case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
         case 'chat-message': addChatMessage(data.sender, data.message); break;
     }
 };
 
 // --- UI Functions ---
 function updateCraftingUI() { const me = players[myPlayerId]; if (!me) return; recipeList.innerHTML = ''; const countItems = (itemName) => { let total = 0; [...me.inventory, ...me.hotbar].forEach(slot => { if (slot && slot.item === itemName) total += slot.quantity; }); return total; }; for (const recipeName in RECIPES) { const recipe = RECIPES[recipeName]; let canCraft = true; let costString = ''; for (const ingredient in recipe.cost) { const owned = countItems(ingredient); const needed = recipe.cost[ingredient]; if (owned < needed) canCraft = false; costString += `${ingredient}: ${owned}/${needed} `; } const recipeEl = document.createElement('div'); recipeEl.className = 'recipe'; if (!canCraft) recipeEl.classList.add('disabled'); recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${recipeName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>Craft</button>`; if (canCraft) { recipeEl.querySelector('button').onclick = () => { socket.send(JSON.stringify({ type: 'craft-item', itemName: recipeName })); }; } recipeList.appendChild(recipeEl); } }
-function updateInventoryUI(){ const me = players[myPlayerId]; if(!me || !me.inventory) return; inventoryGrid.innerHTML = ''; me.inventory.forEach((item) => { const slot = document.createElement('div'); slot.className = 'slot'; if(item){ const iconName = ITEM_ICONS[item.item] || `${item.item.toLowerCase().replace(' ', '_')}.png`; slot.innerHTML = `<div class="item-icon" style="background-image: url('/icons/${iconName}')"></div><div class="item-quantity">${item.quantity}</div>`; } inventoryGrid.appendChild(slot); });}
-function updateHotbarUI() { const me = players[myPlayerId]; if (!me || !me.hotbar) return; hotbarSlots.forEach((slot, i) => { slot.classList.toggle('selected', i === selectedHotbarSlot); const item = me.hotbar[i]; if (item) { const iconName = ITEM_ICONS[item.item] || `${item.item.toLowerCase().replace(' ', '_')}.png`; slot.innerHTML = `<div class="item-icon" style="background-image: url('/icons/${iconName}')"></div><div class="item-quantity">${item.quantity}</div>`; } else { slot.innerHTML = `${i+1}`; } }); }
+function updateInventoryUI(){
+    const me = players[myPlayerId];
+    if(!me || !me.inventory) return;
+    inventoryGrid.innerHTML = '';
+    me.inventory.forEach((item) => {
+        const slot = document.createElement('div');
+        slot.className = 'slot';
+        if(item){
+            const iconName = ITEM_ICONS[item.item];
+            if(iconName){
+                const url = iconName.startsWith('data:') ? iconName : `/icons/${iconName}`;
+                slot.innerHTML = `<div class="item-icon" style="background-image: url('${url}')"></div><div class="item-quantity">${item.quantity}</div>`;
+            } else {
+                const canvasIcon = createItemIconCanvas(item.item);
+                slot.appendChild(canvasIcon);
+                const qty = document.createElement('div');
+                qty.className = 'item-quantity';
+                qty.textContent = item.quantity;
+                slot.appendChild(qty);
+            }
+        }
+        inventoryGrid.appendChild(slot);
+    });
+}
+function updateHotbarUI() {
+    const me = players[myPlayerId];
+    if (!me || !me.hotbar) return;
+    hotbarSlots.forEach((slot, i) => {
+        slot.classList.toggle('selected', i === selectedHotbarSlot);
+        const item = me.hotbar[i];
+        if (item) {
+            const iconName = ITEM_ICONS[item.item];
+            if (iconName) {
+                const url = iconName.startsWith('data:') ? iconName : `/icons/${iconName}`;
+                slot.innerHTML = `<div class="item-icon" style="background-image: url('${url}')"></div><div class="item-quantity">${item.quantity}</div>`;
+            } else {
+                slot.innerHTML = '';
+                const canvasIcon = createItemIconCanvas(item.item);
+                slot.appendChild(canvasIcon);
+                const qty = document.createElement('div');
+                qty.className = 'item-quantity';
+                qty.textContent = item.quantity;
+                slot.appendChild(qty);
+            }
+        } else {
+            slot.innerHTML = `${i+1}`;
+        }
+    });
+}
 
 // --- Player Interaction ---
 function playerMovement() {
@@ -245,6 +329,12 @@ function drawPlayer(player, isMe) {
     ctx.arc(x + nx, y + ny, player.size * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
     ctx.fill();
+    if (player.hp < player.maxHp) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(x - player.size, y - player.size - 10, player.size * 2, 6);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(x - player.size, y - player.size - 10, (player.hp / player.maxHp) * player.size * 2, 6);
+    }
 }
 function drawResource(resource) {
     if (resource.harvested) {
@@ -293,6 +383,29 @@ function drawBoar(boar) {
     ctx.beginPath();
     ctx.arc(boar.x + boar.size * 0.8, boar.y, boar.size * 0.4, 0, Math.PI * 2);
     ctx.fill();
+    const eyeOffset = boar.size * 0.2;
+    const eyeX = boar.x + boar.size * 0.9;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(eyeX, boar.y - eyeOffset, boar.size * 0.1, 0, Math.PI * 2);
+    ctx.arc(eyeX, boar.y + eyeOffset, boar.size * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(eyeX, boar.y - eyeOffset, boar.size * 0.05, 0, Math.PI * 2);
+    ctx.arc(eyeX, boar.y + eyeOffset, boar.size * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(boar.x + boar.size * 0.6, boar.y - eyeOffset);
+    ctx.lineTo(boar.x + boar.size * 1.1, boar.y - eyeOffset * 0.5);
+    ctx.lineTo(boar.x + boar.size * 0.6, boar.y);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(boar.x + boar.size * 0.6, boar.y + eyeOffset);
+    ctx.lineTo(boar.x + boar.size * 1.1, boar.y + eyeOffset * 0.5);
+    ctx.lineTo(boar.x + boar.size * 0.6, boar.y);
+    ctx.fill();
     if (boar.hp < boar.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(boar.x - boar.size, boar.y - boar.size - 10, boar.size * 2, 6);
@@ -301,14 +414,20 @@ function drawBoar(boar) {
     }
 }
 function drawStructure(structure) {
-    if (structure.type === 'wood_wall') ctx.fillStyle = '#8B4513';
-    else if (structure.type === 'stone_wall') ctx.fillStyle = '#808080';
-    else if (structure.type === 'workbench') ctx.fillStyle = '#deb887';
-    else return;
     const size = structure.size || (structure.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
-    ctx.fillRect(structure.x, structure.y, size, size);
-    ctx.strokeStyle = '#333';
-    ctx.strokeRect(structure.x, structure.y, size, size);
+    if (structure.type === 'wood_wall') {
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(structure.x, structure.y, size, size);
+        ctx.strokeStyle = '#333';
+        ctx.strokeRect(structure.x, structure.y, size, size);
+    } else if (structure.type === 'stone_wall') {
+        ctx.fillStyle = '#808080';
+        ctx.fillRect(structure.x, structure.y, size, size);
+        ctx.strokeStyle = '#333';
+        ctx.strokeRect(structure.x, structure.y, size, size);
+    } else if (structure.type === 'workbench') {
+        ctx.drawImage(workbenchImg, structure.x, structure.y, size, size);
+    }
 }
 function render() {
     ctx.save();
