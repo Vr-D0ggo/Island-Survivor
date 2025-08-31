@@ -28,7 +28,7 @@ let structures = {}; // Start as empty object to prevent crashes
 let boars = [];
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
-let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
+let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
 const BLOCK_SIZE = GRID_CELL_SIZE / 2;
 const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
@@ -131,6 +131,7 @@ socket.onmessage = event => {
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
             updatePlayerHealthBar();
+            socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot }));
             break;
         case 'game-state':
             const lastIsDay = dayNight.isDay;
@@ -411,7 +412,17 @@ function drawResource(resource) {
 }
 function drawBoar(boar) {
     const size = boar.size * 2;
-    ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
+    if (boar.color) {
+        ctx.save();
+        ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.fillStyle = boar.color;
+        ctx.fillRect(boar.x - size / 2, boar.y - size / 2, size, size);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+    } else {
+        ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
+    }
     if (boar.hp < boar.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(boar.x - boar.size, boar.y - boar.size - 10, boar.size * 2, 6);
@@ -497,7 +508,7 @@ chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') { if(chatInp
 function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
-window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); } }});
+window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot })); } }});
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
