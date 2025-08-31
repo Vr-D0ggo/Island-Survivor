@@ -39,7 +39,8 @@ const ITEM_ICONS = {
     'Wood': 'wood.png',
     'Stone': 'stone.png',
     'Leaf': 'Leaf.png',
-    'Boar Meat': 'Meat.png',
+    'Raw Meat': 'Meat.png',
+    'Cooked Meat': 'Meat.png',
     'Tusk': 'Tusk.png',
     'Apple': 'apple.png',
     'Wooden Axe': 'Axe.png',
@@ -48,7 +49,8 @@ const ITEM_ICONS = {
     'Stone Axe': 'Axe.png',
     'Stone Pickaxe': 'Pickaxe.png',
     'Stone Sword': 'Sword.png',
-    'Workbench': 'workbench.png'
+    'Workbench': 'workbench.png',
+    'Furnace': 'stone.png'
 };
 const RECIPES = {
     Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' },
@@ -57,7 +59,8 @@ const RECIPES = {
     'Wooden Sword': { cost: { Wood: 2 }, icon: ITEM_ICONS['Wooden Sword'] },
     'Stone Axe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Axe'] },
     'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Pickaxe'] },
-    'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] }
+    'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] },
+    'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] }
 };
 
 // --- Input & UI State ---
@@ -82,7 +85,7 @@ function createItemIconCanvas(name) {
     const c = document.createElement('canvas');
     c.width = c.height = 32;
     const ictx = c.getContext('2d');
-    if (name === 'Boar Meat') {
+    if (name === 'Raw Meat' || name === 'Cooked Meat') {
         ictx.fillStyle = '#a33';
         ictx.fillRect(4, 4, 24, 24);
         ictx.strokeStyle = '#711';
@@ -297,10 +300,17 @@ canvas.addEventListener('mousedown', e => {
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
     } else {
+        let key = null;
         const blockX = Math.floor(mouseX / BLOCK_SIZE);
         const blockY = Math.floor(mouseY / BLOCK_SIZE);
-        const key = `b${blockX},${blockY}`;
-        if (structures[key]) socket.send(JSON.stringify({ type: 'hit-structure', key }));
+        if (structures[`b${blockX},${blockY}`]) {
+            key = `b${blockX},${blockY}`;
+        } else {
+            const gridX = Math.floor(mouseX / GRID_CELL_SIZE);
+            const gridY = Math.floor(mouseY / GRID_CELL_SIZE);
+            if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
+        }
+        if (key) socket.send(JSON.stringify({ type: 'hit-structure', key, item: selectedItem ? selectedItem.item : null, hotbarIndex: selectedHotbarSlot }));
     }
 });
 canvas.addEventListener('contextmenu', e => {
@@ -488,4 +498,9 @@ function addChatMessage(sender, message){ const li = document.createElement('li'
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
 window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); } }});
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'KeyF') {
+        socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
+    }
+});
 updateHotbarUI();
