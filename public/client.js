@@ -40,12 +40,12 @@ const ITEM_ICONS = {
     'Boar Meat': 'Meat.png',
     'Tusk': 'Tusk.png',
     'Apple': 'apple.png',
-    'Wooden Axe': 'wood.png',
-    'Wooden Pickaxe': 'wood.png',
-    'Wooden Sword': 'wood.png',
-    'Stone Axe': 'stone.png',
-    'Stone Pickaxe': 'stone.png',
-    'Stone Sword': 'stone.png',
+    'Wooden Axe': 'Axe.png',
+    'Wooden Pickaxe': 'Pickaxe.png',
+    'Wooden Sword': 'Sword.png',
+    'Stone Axe': 'Axe.png',
+    'Stone Pickaxe': 'Pickaxe.png',
+    'Stone Sword': 'Sword.png',
     'Workbench': 'workbench.png'
 };
 const RECIPES = {
