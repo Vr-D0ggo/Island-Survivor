@@ -220,7 +220,7 @@ wss.on('connection', ws => {
                 if (item === 'Wood') structureType = 'wood_wall';
                 else if (item === 'Stone') structureType = 'stone_wall';
                 else if (item === 'Workbench') structureType = 'workbench';
-                else structureType = item.toLowerCase();
+                else break;
                 if (structureType === 'workbench') {
                     const gridX = Math.floor(x / GRID_CELL_SIZE);
                     const gridY = Math.floor(y / GRID_CELL_SIZE);
@@ -269,6 +269,20 @@ wss.on('connection', ws => {
                         markArea(gx, gy, 1, false);
                     }
                     broadcast({ type: 'structure-update', structures });
+                }
+                break;
+            }
+            case 'swap-inventory': {
+                const { from, to } = data;
+                if (
+                    Number.isInteger(from) && Number.isInteger(to) &&
+                    from >= 0 && from < player.inventory.length &&
+                    to >= 0 && to < player.inventory.length
+                ) {
+                    const temp = player.inventory[from];
+                    player.inventory[from] = player.inventory[to];
+                    player.inventory[to] = temp;
+                    ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                 }
                 break;
             }

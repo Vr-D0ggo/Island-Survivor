@@ -34,6 +34,12 @@ const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ITEM_ICONS = {
+    'Wood': 'wood.png',
+    'Stone': 'stone.png',
+    'Leaf': 'Leaf.png',
+    'Boar Meat': 'Meat.png',
+    'Tusk': 'Tusk.png',
+    'Apple': 'apple.png',
     'Wooden Axe': 'wood.png',
     'Wooden Pickaxe': 'wood.png',
     'Wooden Sword': 'wood.png',
@@ -60,6 +66,7 @@ const chatMessages = document.getElementById('chat-messages'); const chatInput =
 const healthFill = document.getElementById('player-health-fill');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
+let dragSrcIndex = null;
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
@@ -170,9 +177,22 @@ function updateInventoryUI(){
     const me = players[myPlayerId];
     if(!me || !me.inventory) return;
     inventoryGrid.innerHTML = '';
-    me.inventory.forEach((item) => {
+    me.inventory.forEach((item, i) => {
         const slot = document.createElement('div');
         slot.className = 'slot';
+        slot.dataset.index = i;
+        slot.draggable = !!item;
+        slot.addEventListener('dragstart', () => { dragSrcIndex = i; });
+        slot.addEventListener('dragover', e => e.preventDefault());
+        slot.addEventListener('drop', e => {
+            e.preventDefault();
+            const dest = parseInt(e.currentTarget.dataset.index, 10);
+            if (dragSrcIndex !== null && dest !== dragSrcIndex) {
+                socket.send(JSON.stringify({ type: 'swap-inventory', from: dragSrcIndex, to: dest }));
+            }
+            dragSrcIndex = null;
+        });
+        slot.addEventListener('dragend', () => { dragSrcIndex = null; });
         if(item){
             const iconName = ITEM_ICONS[item.item];
             if(iconName){
