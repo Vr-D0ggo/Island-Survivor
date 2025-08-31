@@ -18,13 +18,23 @@ const BLOCK_SUBDIVISIONS = 2;
 const BLOCK_SIZE = GRID_CELL_SIZE / BLOCK_SUBDIVISIONS;
 const SAFE_SPAWN_RADIUS = 10 * GRID_CELL_SIZE;
 const INVENTORY_SLOTS = 4;
-const RECIPES = { Workbench: { cost: { Wood: 5, Stone: 2 }, result: 'Workbench' } };
+const RECIPES = {
+    Workbench: { cost: { Wood: 5, Stone: 2 }, result: 'Workbench' },
+    'Wooden Axe': { cost: { Wood: 3 }, result: 'Wooden Axe' },
+    'Wooden Pickaxe': { cost: { Wood: 3 }, result: 'Wooden Pickaxe' },
+    'Wooden Sword': { cost: { Wood: 2 }, result: 'Wooden Sword' },
+    'Stone Axe': { cost: { Wood: 2, Stone: 3 }, result: 'Stone Axe' },
+    'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, result: 'Stone Pickaxe' },
+    'Stone Sword': { cost: { Wood: 1, Stone: 4 }, result: 'Stone Sword' }
+};
 
 // --- Game State ---
 let players = {};
 let resources = [];
 let structures = {};
 let nextResourceId = 0;
+let boars = [];
+let nextBoarId = 0;
 let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
 let blockGrid = Array(WORLD_WIDTH / BLOCK_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / BLOCK_SIZE).fill(false));
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_DURATION: 7 * 60 * 1000 };
@@ -58,6 +68,24 @@ function generateWorld() {
     placeResource('tree', 150, [2, 3]);
     placeResource('rock', 90, [1, 2, 3]);
     console.log(`Generated ${resources.length} resources.`);
+    spawnBoars(10);
+}
+
+function spawnBoars(count) {
+    for (let i = 0; i < count; i++) {
+        boars.push({
+            id: nextBoarId++,
+            x: Math.random() * WORLD_WIDTH,
+            y: Math.random() * WORLD_HEIGHT,
+            hp: 20,
+            maxHp: 20,
+            size: 25,
+            speed: 1.2,
+            damage: 1,
+            aggressive: false,
+            cooldown: 0
+        });
+    }
 }
 
 // --- Helpers & Game Logic ---
@@ -67,15 +95,17 @@ function countItems(player, itemName) { let t = 0; [...player.inventory, ...play
 function consumeItems(player, itemName, amount) { let r = amount; const c = (s) => { if (s && s.item === itemName && r > 0) { const t = Math.min(r, s.quantity); s.quantity -= t; r -= t; if (s.quantity <= 0) return null; } return s; }; player.inventory = player.inventory.map(c); player.hotbar = player.hotbar.map(c); }
 function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = [...wss.clients].find(c => c.id === playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
 
+function getDamage(item, target) { if (!item) return 1; const name = item.toLowerCase(); if (target === 'tree') { if (name === 'wooden axe') return 3; if (name === 'stone axe') return 5; } else if (target === 'rock') { if (name === 'wooden pickaxe') return 3; if (name === 'stone pickaxe') return 5; } else if (target === 'boar') { if (name === 'wooden sword') return 4; if (name === 'stone sword') return 6; if (name.includes('axe') || name.includes('pickaxe')) return 2; } return 1; }
+
 // --- WebSocket Connection Handling ---
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
     ws.id = playerId;
-    const newPlayer = { id: playerId, x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null) };
+    const newPlayer = { id: playerId, x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10 };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
-        type: 'init', playerId, players, myPlayerData: newPlayer, resources, structures, dayNight
+        type: 'init', playerId, players, myPlayerData: newPlayer, resources, structures, boars, dayNight
     }));
 
     players[playerId] = newPlayer;
@@ -89,7 +119,8 @@ wss.on('connection', ws => {
             case 'hit-resource': {
                 const resource = resources.find(r => r.id === data.resourceId);
                 if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) {
-                    resource.hp--;
+                    const dmg = getDamage(data.item, resource.type);
+                    resource.hp -= dmg;
                     if (resource.type === 'tree' && resource.phase === 1 && resource.hp <= resource.maxHp / 2) {
                         resource.phase = 2;
                         if (resource.apples > 0) addItemToPlayer(playerId, 'Apple', resource.apples);
@@ -122,6 +153,21 @@ wss.on('connection', ws => {
                         }, respawnTime);
                     }
                     broadcast({ type: 'resource-update', resource });
+                }
+                break;
+            }
+            case 'hit-boar': {
+                const boar = boars.find(b => b.id === data.boarId);
+                if (boar && getDistance(player, boar) < player.size + boar.size + 20) {
+                    const dmg = getDamage(data.item, 'boar');
+                    boar.hp -= dmg;
+                    if (boar.hp <= 0) {
+                        boars = boars.filter(b => b.id !== boar.id);
+                    } else if (boar.hp <= boar.maxHp / 2) {
+                        boar.aggressive = true;
+                        boar.target = playerId;
+                    }
+                    broadcast({ type: 'boar-update', boar });
                 }
                 break;
             }
@@ -193,7 +239,41 @@ wss.on('connection', ws => {
 });
 
 // --- Game Loop & Server Start ---
-function gameLoop() { const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION; dayNight.cycleTime = (dayNight.cycleTime + (1000 / 60)) % cycleDuration; const previouslyDay = dayNight.isDay; dayNight.isDay = dayNight.cycleTime < dayNight.DAY_DURATION; if (dayNight.isDay !== previouslyDay) { broadcast({ type: 'notification', message: dayNight.isDay ? 'A New Day Has Begun' : 'Night Falls...' }); } broadcast({ type: 'game-state', players, dayNight }); }
+function gameLoop() {
+    const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
+    dayNight.cycleTime = (dayNight.cycleTime + (1000 / 60)) % cycleDuration;
+    const previouslyDay = dayNight.isDay;
+    dayNight.isDay = dayNight.cycleTime < dayNight.DAY_DURATION;
+    if (dayNight.isDay !== previouslyDay) {
+        broadcast({ type: 'notification', message: dayNight.isDay ? 'A New Day Has Begun' : 'Night Falls...' });
+    }
+    for (const boar of boars) {
+        if (boar.aggressive && players[boar.target]) {
+            const target = players[boar.target];
+            const dx = target.x - boar.x;
+            const dy = target.y - boar.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 0) {
+                boar.x += (dx / dist) * boar.speed;
+                boar.y += (dy / dist) * boar.speed;
+            }
+            if (dist < boar.size + target.size && (!boar.cooldown || boar.cooldown <= 0)) {
+                target.hp -= boar.damage;
+                boar.cooldown = 60;
+                const wsTarget = [...wss.clients].find(c => c.id === target.id);
+                if (wsTarget) wsTarget.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                if (target.hp <= 0) {
+                    target.x = WORLD_WIDTH / 2;
+                    target.y = WORLD_HEIGHT / 2;
+                    target.hp = target.maxHp;
+                    if (wsTarget) wsTarget.send(JSON.stringify({ type: 'notification', message: 'You died!' }));
+                }
+            }
+            if (boar.cooldown) boar.cooldown--;
+        }
+    }
+    broadcast({ type: 'game-state', players, boars, dayNight });
+}
 generateWorld();
 setInterval(gameLoop, 1000 / 60);
 const PORT = process.env.PORT || 3000;
