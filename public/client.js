@@ -32,6 +32,8 @@ let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 10 * 60 * 1000, NIGHT_
 const BLOCK_SIZE = GRID_CELL_SIZE / 2;
 const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
+const appleImg = new Image(); appleImg.src = '/icons/apple.png';
+const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ITEM_ICONS = {
     'Wood': 'wood.png',
@@ -371,6 +373,9 @@ function drawResource(resource) {
         ctx.drawImage(treeTrunkImg, resource.x - trunkSize / 2, resource.y - trunkSize / 2, trunkSize, trunkSize);
         if (resource.phase === 1) {
             ctx.drawImage(treeTopImg, resource.x - resource.size / 2, resource.y - resource.size / 2, resource.size, resource.size);
+            if (resource.apples && resource.apples > 0) {
+                ctx.drawImage(appleImg, resource.x - 8, resource.y - resource.size / 2 - 16, 16, 16);
+            }
             ctx.save();
             ctx.globalCompositeOperation = 'source-atop';
             const grad = ctx.createRadialGradient(resource.x, resource.y, 0, resource.x, resource.y, resource.size / 2);
@@ -395,37 +400,8 @@ function drawResource(resource) {
     }
 }
 function drawBoar(boar) {
-    ctx.fillStyle = '#8B4513';
-    ctx.beginPath();
-    ctx.ellipse(boar.x, boar.y, boar.size, boar.size * 0.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#654321';
-    ctx.beginPath();
-    ctx.arc(boar.x + boar.size * 0.8, boar.y, boar.size * 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    const eyeOffset = boar.size * 0.2;
-    const eyeX = boar.x + boar.size * 0.9;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(eyeX, boar.y - eyeOffset, boar.size * 0.1, 0, Math.PI * 2);
-    ctx.arc(eyeX, boar.y + eyeOffset, boar.size * 0.1, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.arc(eyeX, boar.y - eyeOffset, boar.size * 0.05, 0, Math.PI * 2);
-    ctx.arc(eyeX, boar.y + eyeOffset, boar.size * 0.05, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(boar.x + boar.size * 0.6, boar.y - eyeOffset);
-    ctx.lineTo(boar.x + boar.size * 1.1, boar.y - eyeOffset * 0.5);
-    ctx.lineTo(boar.x + boar.size * 0.6, boar.y);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(boar.x + boar.size * 0.6, boar.y + eyeOffset);
-    ctx.lineTo(boar.x + boar.size * 1.1, boar.y + eyeOffset * 0.5);
-    ctx.lineTo(boar.x + boar.size * 0.6, boar.y);
-    ctx.fill();
+    const size = boar.size * 2;
+    ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
     if (boar.hp < boar.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(boar.x - boar.size, boar.y - boar.size - 10, boar.size * 2, 6);

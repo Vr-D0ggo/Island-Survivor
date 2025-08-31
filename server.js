@@ -71,29 +71,42 @@ function generateWorld() {
     spawnBoars(10);
 }
 
+function createBoar(x, y, packId) {
+    const sizeFactor = 0.8 + Math.random() * 0.7; // 0.8 - 1.5
+    const size = 20 * sizeFactor;
+    const hp = 15 * sizeFactor;
+    return {
+        id: nextBoarId++,
+        x,
+        y,
+        hp,
+        maxHp: hp,
+        size,
+        speed: 1 + Math.random() * 0.5,
+        damage: Math.ceil(2 * sizeFactor),
+        aggressive: false,
+        fleeing: false,
+        cooldown: 0,
+        packId,
+        vx: 0,
+        vy: 0,
+        wanderTimer: 0
+    };
+}
+
 function spawnBoars(count) {
-    for (let i = 0; i < count; i++) {
-        const sizeFactor = 0.8 + Math.random() * 0.7; // 0.8 - 1.5
-        const size = 20 * sizeFactor;
-        const hp = 15 * sizeFactor;
-        boars.push({
-            id: nextBoarId++,
-            x: Math.random() * WORLD_WIDTH,
-            y: Math.random() * WORLD_HEIGHT,
-            hp,
-            maxHp: hp,
-            size,
-            speed: 1 + Math.random() * 0.5,
-            damage: Math.ceil(2 * sizeFactor),
-            aggressive: false,
-            fleeing: false,
-            cooldown: 0,
-            groupId: null,
-            followTimer: 0,
-            vx: 0,
-            vy: 0,
-            wanderTimer: 0
-        });
+    const packSize = 3;
+    for (let i = 0; i < count;) {
+        const currentPackSize = Math.min(packSize, count - i);
+        const packId = nextBoarId;
+        const centerX = Math.random() * WORLD_WIDTH;
+        const centerY = Math.random() * WORLD_HEIGHT;
+        for (let j = 0; j < currentPackSize; j++) {
+            const offsetX = Math.random() * 40 - 20;
+            const offsetY = Math.random() * 40 - 20;
+            boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId));
+        }
+        i += currentPackSize;
     }
 }
 
@@ -301,77 +314,85 @@ function gameLoop() {
     dayNight.isDay = dayNight.cycleTime < dayNight.DAY_DURATION;
     if (dayNight.isDay !== previouslyDay) {
         broadcast({ type: 'notification', message: dayNight.isDay ? 'A New Day Has Begun' : 'Night Falls...' });
-    }
-    for (const boar of boars) {
-        if (boar.aggressive && players[boar.target]) {
-            const target = players[boar.target];
-            const dx = target.x - boar.x;
-            const dy = target.y - boar.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist > 0) {
-                boar.x += (dx / dist) * boar.speed;
-                boar.y += (dy / dist) * boar.speed;
+        if (dayNight.isDay) {
+            const packs = {};
+            for (const b of boars) {
+                if (!packs[b.packId]) packs[b.packId] = [];
+                packs[b.packId].push(b);
             }
-            if (dist < boar.size + target.size && (!boar.cooldown || boar.cooldown <= 0)) {
-                target.hp -= boar.damage;
-                boar.cooldown = 60;
-                const wsTarget = [...wss.clients].find(c => c.id === target.id);
-                if (wsTarget) wsTarget.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
-                if (target.hp <= 0) {
-                    target.x = WORLD_WIDTH / 2;
-                    target.y = WORLD_HEIGHT / 2;
-                    target.hp = target.maxHp;
-                    if (wsTarget) wsTarget.send(JSON.stringify({ type: 'notification', message: 'You died!' }));
+            for (const id in packs) {
+                const members = packs[id];
+                let cx = 0, cy = 0;
+                members.forEach(b => { cx += b.x; cy += b.y; });
+                cx /= members.length; cy /= members.length;
+                const babies = Math.floor(members.length / 3);
+                for (let i = 0; i < babies; i++) {
+                    const ox = Math.random() * 40 - 20;
+                    const oy = Math.random() * 40 - 20;
+                    boars.push(createBoar(cx + ox, cy + oy, parseInt(id)));
                 }
-            }
-            if (boar.cooldown) boar.cooldown--;
-        } else if (boar.fleeing && players[boar.target]) {
-            const target = players[boar.target];
-            const dx = boar.x - target.x;
-            const dy = boar.y - target.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist > 0) {
-                boar.x += (dx / dist) * boar.speed;
-                boar.y += (dy / dist) * boar.speed;
-            }
-            if (boar.hp <= boar.maxHp / 2) {
-                boar.fleeing = false;
-                boar.aggressive = true;
-            }
-        } else {
-            if (boar.groupId && boar.groupId !== boar.id) {
-                const leader = boars.find(b => b.id === boar.groupId);
-                if (leader) {
-                    const dx = leader.x - boar.x;
-                    const dy = leader.y - boar.y;
-                    const dist = Math.hypot(dx, dy);
-                    if (dist > 0) {
-                        boar.x += (dx / dist) * boar.speed;
-                        boar.y += (dy / dist) * boar.speed;
+                members.forEach(b => {
+                    if (b.hp < b.maxHp) {
+                        b.hp = b.maxHp;
+                    } else {
+                        b.size *= 1.1;
+                        b.maxHp *= 1.1;
+                        b.hp = b.maxHp;
                     }
-                } else {
-                    boar.groupId = null;
-                }
-                if (--boar.followTimer <= 0) boar.groupId = null;
-            } else {
-                if (boar.wanderTimer <= 0) {
-                    const angle = Math.random() * Math.PI * 2;
-                    boar.vx = Math.cos(angle) * boar.speed;
-                    boar.vy = Math.sin(angle) * boar.speed;
-                    boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
-                    const nearby = boars.find(b => b.id !== boar.id && getDistance(b, boar) < 150 && !b.aggressive);
-                    if (nearby && Math.random() < 0.05) {
-                        const gid = nearby.groupId || nearby.id;
-                        boar.groupId = gid;
-                        boar.followTimer = 600 + Math.floor(Math.random() * 600);
-                        if (!nearby.groupId) nearby.groupId = gid;
-                    }
-                }
-                boar.x += boar.vx;
-                boar.y += boar.vy;
-                boar.wanderTimer--;
+                });
             }
         }
+    }
+
+    const packMap = {};
+    for (const b of boars) {
+        if (!packMap[b.packId]) packMap[b.packId] = { members: [], cx: 0, cy: 0 };
+        const p = packMap[b.packId];
+        p.members.push(b);
+        p.cx += b.x;
+        p.cy += b.y;
+    }
+    const packIds = Object.keys(packMap);
+    packIds.forEach(id => {
+        const p = packMap[id];
+        p.cx /= p.members.length;
+        p.cy /= p.members.length;
+    });
+
+    for (let i = 0; i < packIds.length; i++) {
+        for (let j = i + 1; j < packIds.length; j++) {
+            const p1 = packMap[packIds[i]];
+            const p2 = packMap[packIds[j]];
+            const dx = p1.cx - p2.cx;
+            const dy = p1.cy - p2.cy;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 100) {
+                p1.members.forEach(b => { b.hp -= 1; b.vx = dx / dist * b.speed; b.vy = dy / dist * b.speed; });
+                p2.members.forEach(b => { b.hp -= 1; b.vx = -dx / dist * b.speed; b.vy = -dy / dist * b.speed; });
+            }
+        }
+    }
+
+    for (const boar of boars) {
+        if (boar.wanderTimer <= 0) {
+            const angle = Math.random() * Math.PI * 2;
+            boar.vx = Math.cos(angle) * boar.speed;
+            boar.vy = Math.sin(angle) * boar.speed;
+            boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
+        }
+        const pack = packMap[boar.packId];
+        if (pack) {
+            const dx = pack.cx - boar.x;
+            const dy = pack.cy - boar.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 30) {
+                boar.vx += (dx / dist) * 0.05;
+                boar.vy += (dy / dist) * 0.05;
+            }
+        }
+        boar.x += boar.vx;
+        boar.y += boar.vy;
+        boar.wanderTimer--;
         boar.x = Math.max(0, Math.min(WORLD_WIDTH, boar.x));
         boar.y = Math.max(0, Math.min(WORLD_HEIGHT, boar.y));
     }
