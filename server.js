@@ -25,7 +25,8 @@ const RECIPES = {
     'Wooden Sword': { cost: { Wood: 2 }, result: 'Wooden Sword' },
     'Stone Axe': { cost: { Wood: 2, Stone: 3 }, result: 'Stone Axe' },
     'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, result: 'Stone Pickaxe' },
-    'Stone Sword': { cost: { Wood: 1, Stone: 4 }, result: 'Stone Sword' }
+    'Stone Sword': { cost: { Wood: 1, Stone: 4 }, result: 'Stone Sword' },
+    'Furnace': { cost: { Stone: 20 }, result: 'Furnace' }
 };
 
 // --- Game State ---
@@ -71,7 +72,7 @@ function generateWorld() {
     spawnBoars(10);
 }
 
-function createBoar(x, y, packId) {
+function createBoar(x, y, packId, isLeader = false) {
     const sizeFactor = 0.8 + Math.random() * 0.7; // 0.8 - 1.5
     const size = 20 * sizeFactor;
     const hp = 15 * sizeFactor;
@@ -88,6 +89,7 @@ function createBoar(x, y, packId) {
         fleeing: false,
         cooldown: 0,
         packId,
+        isLeader,
         vx: 0,
         vy: 0,
         wanderTimer: 0
@@ -104,7 +106,7 @@ function spawnBoars(count) {
         for (let j = 0; j < currentPackSize; j++) {
             const offsetX = Math.random() * 40 - 20;
             const offsetY = Math.random() * 40 - 20;
-            boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId));
+            boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId, j === 0));
         }
         i += currentPackSize;
     }
@@ -133,6 +135,23 @@ function getDamage(item, target) {
         if (name.includes('axe') || name.includes('pickaxe')) return 2;
     }
     return 1;
+}
+
+function isBlocked(x, y, size) {
+    const bx = Math.floor(x / BLOCK_SIZE);
+    const by = Math.floor(y / BLOCK_SIZE);
+    if (blockGrid[bx] && blockGrid[bx][by]) return true;
+    for (const key in structures) {
+        const s = structures[key];
+        const sSize = s.size;
+        const cx = s.x + sSize / 2;
+        const cy = s.y + sSize / 2;
+        if (getDistance({ x, y }, { x: cx, y: cy }) < size / 2 + sSize / 2) return true;
+    }
+    for (const r of resources) {
+        if (!r.harvested && getDistance({ x, y }, r) < size / 2 + r.size / 2) return true;
+    }
+    return false;
 }
 
 // --- WebSocket Connection Handling ---
@@ -200,17 +219,16 @@ wss.on('connection', ws => {
                     const dmg = getDamage(data.item, 'boar');
                     boar.hp -= dmg;
                     if (boar.hp <= 0) {
-                        addItemToPlayer(playerId, 'Boar Meat', 1 + Math.floor(Math.random() * 3));
+                        addItemToPlayer(playerId, 'Raw Meat', 1 + Math.floor(Math.random() * 3));
                         if (Math.random() < 0.1) addItemToPlayer(playerId, 'Tusk', 1);
-                        const gid = boar.groupId;
+                        const pid = boar.packId;
                         boars = boars.filter(b => b.id !== boar.id);
-                        if (gid !== null) {
-                            boars.filter(b => b.groupId === gid).forEach(b => { b.aggressive = false; b.target = null; });
+                        if (boar.isLeader) {
+                            boars.filter(b => b.packId === pid).forEach(b => { b.packId = null; b.aggressive = false; b.target = null; });
                         }
                     } else {
-                        const gid = boar.groupId;
-                        if (gid !== null) {
-                            boars.filter(b => b.groupId === gid).forEach(b => { b.aggressive = true; b.target = playerId; });
+                        if (boar.packId !== null) {
+                            boars.filter(b => b.packId === boar.packId).forEach(b => { b.aggressive = true; b.target = playerId; });
                         } else {
                             boar.fleeing = true;
                             boar.target = playerId;
@@ -233,8 +251,9 @@ wss.on('connection', ws => {
                 if (item === 'Wood') structureType = 'wood_wall';
                 else if (item === 'Stone') structureType = 'stone_wall';
                 else if (item === 'Workbench') structureType = 'workbench';
+                else if (item === 'Furnace') structureType = 'furnace';
                 else break;
-                if (structureType === 'workbench') {
+                if (structureType === 'workbench' || structureType === 'furnace') {
                     const gridX = Math.floor(x / GRID_CELL_SIZE);
                     const gridY = Math.floor(y / GRID_CELL_SIZE);
                     const coordKey = `w${gridX},${gridY}`;
@@ -264,24 +283,35 @@ wss.on('connection', ws => {
                 break;
             }
             case 'hit-structure': {
-                const { key } = data;
+                const { key, item, hotbarIndex } = data;
                 const structure = structures[key];
                 if (!structure) break;
                 const center = { x: structure.x + structure.size / 2, y: structure.y + structure.size / 2 };
                 if (getDistance(player, center) < player.size + structure.size) {
-                    if (structure.type === 'wood_wall' || structure.type === 'stone_wall') {
-                        const item = structure.type === 'wood_wall' ? 'Wood' : 'Stone';
-                        addItemToPlayer(playerId, item, 1);
+                    if (structure.type === 'furnace' && item === 'Leaf') {
+                        const fuelSlot = player.hotbar[hotbarIndex];
+                        if (fuelSlot && fuelSlot.item === 'Leaf' && countItems(player, 'Raw Meat') > 0) {
+                            fuelSlot.quantity--;
+                            if (fuelSlot.quantity <= 0) player.hotbar[hotbarIndex] = null;
+                            consumeItems(player, 'Raw Meat', 1);
+                            addItemToPlayer(playerId, 'Cooked Meat', 1);
+                            ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                        }
+                    } else {
+                        if (structure.type === 'wood_wall' || structure.type === 'stone_wall' || structure.type === 'furnace') {
+                            const itemDrop = structure.type === 'wood_wall' ? 'Wood' : 'Stone';
+                            addItemToPlayer(playerId, itemDrop, 1);
+                        }
+                        delete structures[key];
+                        if (key.startsWith('b')) {
+                            const [bx, by] = key.slice(1).split(',').map(Number);
+                            blockGrid[bx][by] = false;
+                        } else if (key.startsWith('w')) {
+                            const [gx, gy] = key.slice(1).split(',').map(Number);
+                            markArea(gx, gy, 1, false);
+                        }
+                        broadcast({ type: 'structure-update', structures });
                     }
-                    delete structures[key];
-                    if (key.startsWith('b')) {
-                        const [bx, by] = key.slice(1).split(',').map(Number);
-                        blockGrid[bx][by] = false;
-                    } else if (key.startsWith('w')) {
-                        const [gx, gy] = key.slice(1).split(',').map(Number);
-                        markArea(gx, gy, 1, false);
-                    }
-                    broadcast({ type: 'structure-update', structures });
                 }
                 break;
             }
@@ -296,6 +326,40 @@ wss.on('connection', ws => {
                     player.inventory[from] = player.inventory[to];
                     player.inventory[to] = temp;
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                }
+                break;
+            }
+            case 'consume-item': {
+                const index = data.hotbarIndex;
+                const slot = player.hotbar[index];
+                if (!slot) break;
+                if (slot.item === 'Raw Meat') {
+                    slot.quantity--;
+                    if (slot.quantity <= 0) player.hotbar[index] = null;
+                    ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                    if (Math.random() < 0.5) {
+                        const total = player.maxHp * 0.25;
+                        let dealt = 0;
+                        const steps = 5;
+                        const interval = setInterval(() => {
+                            const p = players[playerId];
+                            if (!p) { clearInterval(interval); return; }
+                            const dmg = total / steps;
+                            p.hp = Math.max(0, p.hp - dmg);
+                            ws.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                            dealt += dmg;
+                            if (dealt >= total || p.hp <= 0) clearInterval(interval);
+                        }, 1000);
+                    } else {
+                        player.hp = Math.min(player.maxHp, player.hp + 2);
+                        ws.send(JSON.stringify({ type: 'player-hit', hp: player.hp }));
+                    }
+                } else if (slot.item === 'Cooked Meat') {
+                    slot.quantity--;
+                    if (slot.quantity <= 0) player.hotbar[index] = null;
+                    player.hp = Math.min(player.maxHp, player.hp + 5);
+                    ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                    ws.send(JSON.stringify({ type: 'player-hit', hp: player.hp }));
                 }
                 break;
             }
@@ -346,29 +410,29 @@ function gameLoop() {
 
     const packMap = {};
     for (const b of boars) {
-        if (!packMap[b.packId]) packMap[b.packId] = { members: [], cx: 0, cy: 0 };
+        if (b.packId === null) continue;
+        if (!packMap[b.packId]) packMap[b.packId] = { members: [], leader: null };
         const p = packMap[b.packId];
         p.members.push(b);
-        p.cx += b.x;
-        p.cy += b.y;
+        if (b.isLeader) p.leader = b;
     }
     const packIds = Object.keys(packMap);
-    packIds.forEach(id => {
-        const p = packMap[id];
-        p.cx /= p.members.length;
-        p.cy /= p.members.length;
-    });
 
     for (let i = 0; i < packIds.length; i++) {
         for (let j = i + 1; j < packIds.length; j++) {
             const p1 = packMap[packIds[i]];
             const p2 = packMap[packIds[j]];
-            const dx = p1.cx - p2.cx;
-            const dy = p1.cy - p2.cy;
+            if (!p1.leader || !p2.leader) continue;
+            const dx = p1.leader.x - p2.leader.x;
+            const dy = p1.leader.y - p2.leader.y;
             const dist = Math.hypot(dx, dy);
             if (dist < 100) {
-                p1.members.forEach(b => { b.hp -= 1; b.vx = dx / dist * b.speed; b.vy = dy / dist * b.speed; });
-                p2.members.forEach(b => { b.hp -= 1; b.vx = -dx / dist * b.speed; b.vy = -dy / dist * b.speed; });
+                p1.leader.hp -= 1;
+                p2.leader.hp -= 1;
+                p1.leader.vx = dx / dist * p1.leader.speed;
+                p1.leader.vy = dy / dist * p1.leader.speed;
+                p2.leader.vx = -dx / dist * p2.leader.speed;
+                p2.leader.vy = -dy / dist * p2.leader.speed;
             }
         }
     }
@@ -381,20 +445,41 @@ function gameLoop() {
             boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
         }
         const pack = packMap[boar.packId];
-        if (pack) {
-            const dx = pack.cx - boar.x;
-            const dy = pack.cy - boar.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist > 30) {
-                boar.vx += (dx / dist) * 0.05;
-                boar.vy += (dy / dist) * 0.05;
+        if (pack && pack.leader) {
+            if (!boar.isLeader) {
+                const dx = pack.leader.x - boar.x;
+                const dy = pack.leader.y - boar.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 20) {
+                    boar.vx += (dx / dist) * 0.05;
+                    boar.vy += (dy / dist) * 0.05;
+                }
             }
         }
-        boar.x += boar.vx;
-        boar.y += boar.vy;
+        const nx = boar.x + boar.vx;
+        const ny = boar.y + boar.vy;
+        if (!isBlocked(nx, ny, boar.size)) {
+            boar.x = nx;
+            boar.y = ny;
+        } else {
+            boar.vx = -boar.vx * 0.5;
+            boar.vy = -boar.vy * 0.5;
+        }
         boar.wanderTimer--;
         boar.x = Math.max(0, Math.min(WORLD_WIDTH, boar.x));
         boar.y = Math.max(0, Math.min(WORLD_HEIGHT, boar.y));
+    }
+
+    for (const boar of boars) {
+        if (boar.packId === null) {
+            for (const id of packIds) {
+                const leader = packMap[id].leader;
+                if (leader && getDistance(boar, leader) < 80) {
+                    boar.packId = parseInt(id);
+                    break;
+                }
+            }
+        }
     }
     broadcast({ type: 'game-state', players, boars, dayNight });
 }
