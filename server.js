@@ -36,6 +36,8 @@ let structures = {};
 let nextResourceId = 0;
 let boars = [];
 let nextBoarId = 0;
+let zombies = [];
+let nextZombieId = 0;
 let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
 let blockGrid = Array(WORLD_WIDTH / BLOCK_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / BLOCK_SIZE).fill(false));
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -70,15 +72,12 @@ function generateWorld() {
     placeResource('rock', 90, [1, 2, 3]);
     console.log(`Generated ${resources.length} resources.`);
     spawnBoars(10);
+    spawnZombies(5);
 }
 
-function createBoar(x, y, packId, isLeader = false, sizeFactor = null, color = null) {
-    if (sizeFactor === null) sizeFactor = isLeader ? 1.4 + Math.random() * 0.2 : 0.8 + Math.random() * 0.5;
-    if (isLeader) {
-        color = color || (Math.random() < 0.5 ? 'black' : 'silver');
-    }
-    const size = 20 * sizeFactor;
-    const hp = 15 * sizeFactor;
+function createBoar(x, y) {
+    const size = 20;
+    const hp = 15;
     return {
         id: nextBoarId++,
         x,
@@ -86,14 +85,11 @@ function createBoar(x, y, packId, isLeader = false, sizeFactor = null, color = n
         hp,
         maxHp: hp,
         size,
-        speed: 1 + Math.random() * 0.5,
-        damage: Math.ceil(2 * sizeFactor),
+        speed: 1.2,
+        damage: 3,
         aggressive: false,
-        fleeing: false,
+        target: null,
         cooldown: 0,
-        packId,
-        isLeader,
-        color,
         vx: 0,
         vy: 0,
         wanderTimer: 0
@@ -101,25 +97,42 @@ function createBoar(x, y, packId, isLeader = false, sizeFactor = null, color = n
 }
 
 function spawnBoars(count) {
-    const packSize = 3;
-    for (let i = 0; i < count;) {
-        const currentPackSize = Math.min(packSize, count - i);
-        const packId = nextBoarId;
-        const centerX = Math.random() * WORLD_WIDTH;
-        const centerY = Math.random() * WORLD_HEIGHT;
-        const leaderSize = 1.4 + Math.random() * 0.2;
-        const leaderColor = Math.random() < 0.5 ? 'black' : 'silver';
-        for (let j = 0; j < currentPackSize; j++) {
-            const offsetX = Math.random() * 40 - 20;
-            const offsetY = Math.random() * 40 - 20;
-            if (j === 0) {
-                boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId, true, leaderSize, leaderColor));
-            } else {
-                const followerSize = 0.8 + Math.random() * 0.5;
-                boars.push(createBoar(centerX + offsetX, centerY + offsetY, packId, false, Math.min(followerSize, leaderSize - 0.1)));
-            }
-        }
-        i += currentPackSize;
+    for (let i = 0; i < count; i++) {
+        const x = Math.random() * WORLD_WIDTH;
+        const y = Math.random() * WORLD_HEIGHT;
+        boars.push(createBoar(x, y));
+    }
+}
+
+function createZombie(x, y) {
+    const size = 20;
+    const hp = 20;
+    return {
+        id: nextZombieId++,
+        x,
+        y,
+        homeX: x,
+        homeY: y,
+        hp,
+        maxHp: hp,
+        size,
+        speed: 1.2,
+        damage: 2,
+        aggressive: false,
+        target: null,
+        cooldown: 0,
+        vx: 0,
+        vy: 0,
+        wanderTimer: 0,
+        angle: 0
+    };
+}
+
+function spawnZombies(count) {
+    const trees = resources.filter(r => r.type === 'tree');
+    for (let i = 0; i < count && trees.length > 0; i++) {
+        const t = trees[Math.floor(Math.random() * trees.length)];
+        zombies.push(createZombie(t.x, t.y));
     }
 }
 
@@ -140,6 +153,11 @@ function getDamage(item, target) {
         if (name === 'wooden pickaxe') return 3;
         if (name === 'stone pickaxe') return 5;
     } else if (target === 'boar') {
+        if (name === 'wooden sword') return 4;
+        if (name === 'stone sword') return 6;
+        if (name === 'tusk') return 7;
+        if (name.includes('axe') || name.includes('pickaxe')) return 2;
+    } else if (target === 'zombie') {
         if (name === 'wooden sword') return 4;
         if (name === 'stone sword') return 6;
         if (name === 'tusk') return 7;
@@ -173,7 +191,7 @@ wss.on('connection', ws => {
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
-        type: 'init', playerId, players, myPlayerData: newPlayer, resources, structures, boars, dayNight
+        type: 'init', playerId, players, myPlayerData: newPlayer, resources, structures, boars, zombies: dayNight.isDay ? [] : zombies, dayNight
     }));
 
     players[playerId] = newPlayer;
@@ -235,25 +253,27 @@ wss.on('connection', ws => {
                     if (boar.hp <= 0) {
                         addItemToPlayer(playerId, 'Raw Meat', 1 + Math.floor(Math.random() * 3));
                         if (Math.random() < 0.1) addItemToPlayer(playerId, 'Tusk', 1);
-                        const pid = boar.packId;
                         boars = boars.filter(b => b.id !== boar.id);
-                        if (boar.isLeader) {
-                            boars.filter(b => b.packId === pid).forEach(b => { b.packId = null; b.aggressive = false; b.target = null; });
-                        }
                     } else {
-                        if (boar.packId !== null) {
-                            boars.filter(b => b.packId === boar.packId).forEach(b => { b.aggressive = true; b.target = playerId; });
-                        } else {
-                            boar.fleeing = true;
-                            boar.target = playerId;
-                        }
-                        if (boar.hp <= boar.maxHp / 2) {
-                            boar.fleeing = false;
-                            boar.aggressive = true;
-                            boar.target = playerId;
-                        }
+                        boar.aggressive = true;
+                        boar.target = playerId;
                     }
                     broadcast({ type: 'boar-update', boar });
+                }
+                break;
+            }
+            case 'hit-zombie': {
+                const zombie = zombies.find(z => z.id === data.zombieId);
+                if (zombie && getDistance(player, zombie) < player.size + zombie.size + 20) {
+                    const dmg = getDamage(data.item, 'zombie');
+                    zombie.hp -= dmg;
+                    if (zombie.hp <= 0) {
+                        zombies = zombies.filter(z => z.id !== zombie.id);
+                    } else {
+                        zombie.aggressive = true;
+                        zombie.target = playerId;
+                    }
+                    broadcast({ type: 'zombie-update', zombie });
                 }
                 break;
             }
@@ -393,140 +413,125 @@ function gameLoop() {
     if (dayNight.isDay !== previouslyDay) {
         broadcast({ type: 'notification', message: dayNight.isDay ? 'A New Day Has Begun' : 'Night Falls...' });
         if (dayNight.isDay) {
-            const packs = {};
-            for (const b of boars) {
-                if (!packs[b.packId]) packs[b.packId] = [];
-                packs[b.packId].push(b);
-            }
-            for (const id in packs) {
-                const members = packs[id];
-                let cx = 0, cy = 0;
-                members.forEach(b => { cx += b.x; cy += b.y; });
-                cx /= members.length; cy /= members.length;
-                const babies = Math.floor(members.length / 3);
-                for (let i = 0; i < babies; i++) {
-                    const ox = Math.random() * 40 - 20;
-                    const oy = Math.random() * 40 - 20;
-                    boars.push(createBoar(cx + ox, cy + oy, parseInt(id)));
-                }
-                members.forEach(b => {
-                    if (b.hp < b.maxHp) {
-                        b.hp = b.maxHp;
-                    } else {
-                        b.size *= 1.1;
-                        b.maxHp *= 1.1;
-                        b.hp = b.maxHp;
-                    }
-                });
-            }
-        }
-    }
-
-    const packMap = {};
-    for (const b of boars) {
-        if (b.packId === null) continue;
-        if (!packMap[b.packId]) packMap[b.packId] = { members: [], leader: null };
-        const p = packMap[b.packId];
-        p.members.push(b);
-        if (b.isLeader) p.leader = b;
-    }
-    const packIds = Object.keys(packMap);
-
-    for (let i = 0; i < packIds.length; i++) {
-        for (let j = i + 1; j < packIds.length; j++) {
-            const p1 = packMap[packIds[i]];
-            const p2 = packMap[packIds[j]];
-            if (!p1.leader || !p2.leader) continue;
-            const dx = p1.leader.x - p2.leader.x;
-            const dy = p1.leader.y - p2.leader.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist < 100) {
-                p1.leader.hp -= 1;
-                p2.leader.hp -= 1;
-                p1.leader.vx = dx / dist * p1.leader.speed;
-                p1.leader.vy = dy / dist * p1.leader.speed;
-                p2.leader.vx = -dx / dist * p2.leader.speed;
-                p2.leader.vy = -dy / dist * p2.leader.speed;
-            }
+            boars.forEach(b => (b.hp = b.maxHp));
+            zombies.forEach(z => {
+                z.x = z.homeX;
+                z.y = z.homeY;
+                z.aggressive = false;
+                z.target = null;
+            });
         }
     }
 
     for (const boar of boars) {
-        if (boar.aggressive && !players[boar.target]) {
-            boar.aggressive = false;
-            boar.target = null;
-        }
-
-        if (boar.aggressive && players[boar.target]) {
-            const target = players[boar.target];
-            const dx = target.x - boar.x;
-            const dy = target.y - boar.y;
-            const dist = Math.hypot(dx, dy) || 1;
-            boar.vx = (dx / dist) * boar.speed * 1.5;
-            boar.vy = (dy / dist) * boar.speed * 1.5;
-            boar.wanderTimer = 30;
-        } else {
-            let baitTarget = null;
-            let closest = Infinity;
+        if (boar.cooldown > 0) boar.cooldown--;
+        if (!boar.aggressive) {
             for (const id in players) {
                 const p = players[id];
-                const held = p.hotbar[p.heldIndex];
-                if (held && (held.item === 'Apple' || held.item === 'Cooked Meat')) {
-                    const d = getDistance(p, boar);
-                    if (d < 250 && d < closest) { closest = d; baitTarget = p; }
+                if (getDistance(p, boar) < 150) {
+                    boar.aggressive = true;
+                    boar.target = id;
+                    break;
                 }
             }
-            if (baitTarget) {
-                const dx = baitTarget.x - boar.x;
-                const dy = baitTarget.y - boar.y;
+        } else {
+            const target = players[boar.target];
+            if (!target) {
+                boar.aggressive = false;
+                boar.target = null;
+            } else {
+                const dx = target.x - boar.x;
+                const dy = target.y - boar.y;
                 const dist = Math.hypot(dx, dy) || 1;
                 boar.vx = (dx / dist) * boar.speed;
                 boar.vy = (dy / dist) * boar.speed;
-            } else if (boar.wanderTimer <= 0) {
-                const angle = Math.random() * Math.PI * 2;
-                boar.vx = Math.cos(angle) * boar.speed;
-                boar.vy = Math.sin(angle) * boar.speed;
-                boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
+                if (dist < boar.size + target.size && boar.cooldown <= 0) {
+                    target.hp = Math.max(0, target.hp - boar.damage);
+                    boar.cooldown = 60;
+                    const c = [...wss.clients].find(cl => cl.id === boar.target);
+                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                }
             }
         }
-
-        const pack = packMap[boar.packId];
-        if (pack && pack.leader && !boar.isLeader && !boar.aggressive) {
-            const dx = pack.leader.x - boar.x;
-            const dy = pack.leader.y - boar.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist > 20) {
-                boar.vx += (dx / dist) * 0.05;
-                boar.vy += (dy / dist) * 0.05;
-            }
+        if (!boar.aggressive && boar.wanderTimer <= 0) {
+            const angle = Math.random() * Math.PI * 2;
+            boar.vx = Math.cos(angle) * boar.speed;
+            boar.vy = Math.sin(angle) * boar.speed;
+            boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
         }
-
+        boar.wanderTimer--;
         const nx = boar.x + boar.vx;
         const ny = boar.y + boar.vy;
         if (!isBlocked(nx, ny, boar.size)) {
             boar.x = nx;
             boar.y = ny;
         } else {
-            boar.vx = -boar.vx * 0.5;
-            boar.vy = -boar.vy * 0.5;
+            boar.vx = -boar.vx;
+            boar.vy = -boar.vy;
         }
-        boar.wanderTimer--;
         boar.x = Math.max(0, Math.min(WORLD_WIDTH, boar.x));
         boar.y = Math.max(0, Math.min(WORLD_HEIGHT, boar.y));
     }
 
-    for (const boar of boars) {
-        if (boar.packId === null) {
-            for (const id of packIds) {
-                const leader = packMap[id].leader;
-                if (leader && getDistance(boar, leader) < 80) {
-                    boar.packId = parseInt(id);
+    for (const zombie of zombies) {
+        if (zombie.cooldown > 0) zombie.cooldown--;
+        if (dayNight.isDay) continue;
+        if (!zombie.aggressive) {
+            let detected = false;
+            for (const id in players) {
+                const p = players[id];
+                const dx = p.x - zombie.x;
+                const dy = p.y - zombie.y;
+                const dist = Math.hypot(dx, dy);
+                const angleToPlayer = Math.atan2(dy, dx);
+                const diff = Math.abs(Math.atan2(Math.sin(angleToPlayer - zombie.angle), Math.cos(angleToPlayer - zombie.angle)));
+                if (dist < 200 && diff < Math.PI / 4) {
+                    zombie.aggressive = true;
+                    zombie.target = id;
+                    detected = true;
                     break;
                 }
             }
+            if (!detected && zombie.wanderTimer <= 0) {
+                zombie.angle = Math.random() * Math.PI * 2;
+                zombie.vx = Math.cos(zombie.angle) * zombie.speed;
+                zombie.vy = Math.sin(zombie.angle) * zombie.speed;
+                zombie.wanderTimer = 60 + Math.floor(Math.random() * 120);
+            }
+        } else {
+            const target = players[zombie.target];
+            if (!target) {
+                zombie.aggressive = false;
+                zombie.target = null;
+            } else {
+                const dx = target.x - zombie.x;
+                const dy = target.y - zombie.y;
+                const dist = Math.hypot(dx, dy) || 1;
+                zombie.angle = Math.atan2(dy, dx);
+                zombie.vx = (dx / dist) * zombie.speed;
+                zombie.vy = (dy / dist) * zombie.speed;
+                if (dist < zombie.size + target.size && zombie.cooldown <= 0) {
+                    target.hp = Math.max(0, target.hp - zombie.damage);
+                    zombie.cooldown = 60;
+                    const c = [...wss.clients].find(cl => cl.id === zombie.target);
+                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                }
+            }
         }
+        zombie.wanderTimer--;
+        const nx = zombie.x + zombie.vx;
+        const ny = zombie.y + zombie.vy;
+        if (!isBlocked(nx, ny, zombie.size)) {
+            zombie.x = nx;
+            zombie.y = ny;
+        } else {
+            zombie.vx = -zombie.vx;
+            zombie.vy = -zombie.vy;
+        }
+        zombie.x = Math.max(0, Math.min(WORLD_WIDTH, zombie.x));
+        zombie.y = Math.max(0, Math.min(WORLD_HEIGHT, zombie.y));
     }
-    broadcast({ type: 'game-state', players, boars, dayNight });
+    broadcast({ type: 'game-state', players, boars, zombies: dayNight.isDay ? [] : zombies, dayNight });
 }
 generateWorld();
 setInterval(gameLoop, 1000 / 60);
