@@ -178,7 +178,29 @@ function isBlocked(x, y, size) {
         if (getDistance({ x, y }, { x: cx, y: cy }) < size / 2 + sSize / 2) return true;
     }
     for (const r of resources) {
-        if (!r.harvested && getDistance({ x, y }, r) < size / 2 + r.size / 2) return true;
+        if (r.harvested) continue;
+        let rSize = r.size / 2;
+        if (r.type === 'tree') {
+            rSize = GRID_CELL_SIZE * 0.4; // only block on trunk, not leaves
+        }
+        if (getDistance({ x, y }, r) < size / 2 + rSize) return true;
+    }
+    return false;
+}
+
+function collidesWithEntities(x, y, size, self) {
+    for (const id in players) {
+        const p = players[id];
+        if (p === self) continue;
+        if (getDistance({ x, y }, p) < size / 2 + p.size / 2) return true;
+    }
+    for (const b of boars) {
+        if (b === self) continue;
+        if (getDistance({ x, y }, b) < size / 2 + b.size / 2) return true;
+    }
+    for (const z of zombies) {
+        if (z === self) continue;
+        if (getDistance({ x, y }, z) < size / 2 + z.size / 2) return true;
     }
     return false;
 }
@@ -187,7 +209,7 @@ function isBlocked(x, y, size) {
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
     ws.id = playerId;
-    const newPlayer = { id: playerId, x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0 };
+    const newPlayer = { id: playerId, x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0, lastHitBy: null };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
@@ -201,7 +223,15 @@ wss.on('connection', ws => {
     ws.on('message', message => {
         const data = JSON.parse(message); const player = players[playerId]; if (!player) return;
         switch (data.type) {
-            case 'move': player.x = data.x; player.y = data.y; break;
+            case 'move': {
+                const nx = data.x;
+                const ny = data.y;
+                if (!isBlocked(nx, ny, player.size) && !collidesWithEntities(nx, ny, player.size, player)) {
+                    player.x = nx;
+                    player.y = ny;
+                }
+                break;
+            }
             case 'held-item':
                 if (Number.isInteger(data.index)) player.heldIndex = data.index;
                 break;
@@ -317,35 +347,24 @@ wss.on('connection', ws => {
                 break;
             }
             case 'hit-structure': {
-                const { key, item, hotbarIndex } = data;
+                const { key } = data;
                 const structure = structures[key];
                 if (!structure) break;
                 const center = { x: structure.x + structure.size / 2, y: structure.y + structure.size / 2 };
                 if (getDistance(player, center) < player.size + structure.size) {
-                    if (structure.type === 'furnace' && item === 'Leaf') {
-                        const fuelSlot = player.hotbar[hotbarIndex];
-                        if (fuelSlot && fuelSlot.item === 'Leaf' && countItems(player, 'Raw Meat') > 0) {
-                            fuelSlot.quantity--;
-                            if (fuelSlot.quantity <= 0) player.hotbar[hotbarIndex] = null;
-                            consumeItems(player, 'Raw Meat', 1);
-                            addItemToPlayer(playerId, 'Cooked Meat', 1);
-                            ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
-                        }
-                    } else {
-                        if (structure.type === 'wood_wall' || structure.type === 'stone_wall' || structure.type === 'furnace') {
-                            const itemDrop = structure.type === 'wood_wall' ? 'Wood' : 'Stone';
-                            addItemToPlayer(playerId, itemDrop, 1);
-                        }
-                        delete structures[key];
-                        if (key.startsWith('b')) {
-                            const [bx, by] = key.slice(1).split(',').map(Number);
-                            blockGrid[bx][by] = false;
-                        } else if (key.startsWith('w')) {
-                            const [gx, gy] = key.slice(1).split(',').map(Number);
-                            markArea(gx, gy, 1, false);
-                        }
-                        broadcast({ type: 'structure-update', structures });
+                    if (structure.type === 'wood_wall' || structure.type === 'stone_wall' || structure.type === 'furnace') {
+                        const itemDrop = structure.type === 'wood_wall' ? 'Wood' : 'Stone';
+                        addItemToPlayer(playerId, itemDrop, 1);
                     }
+                    delete structures[key];
+                    if (key.startsWith('b')) {
+                        const [bx, by] = key.slice(1).split(',').map(Number);
+                        blockGrid[bx][by] = false;
+                    } else if (key.startsWith('w')) {
+                        const [gx, gy] = key.slice(1).split(',').map(Number);
+                        markArea(gx, gy, 1, false);
+                    }
+                    broadcast({ type: 'structure-update', structures });
                 }
                 break;
             }
@@ -397,7 +416,38 @@ wss.on('connection', ws => {
                 }
                 break;
             }
-            case 'craft-item': const recipe = RECIPES[data.itemName]; if (!recipe) return; let canCraft = true; for (const i in recipe.cost) { if (countItems(player, i) < recipe.cost[i]) { canCraft = false; break; } } if (canCraft) { for (const i in recipe.cost) { consumeItems(player, i, recipe.cost[i]); } addItemToPlayer(playerId, recipe.result, 1); } break;
+            case 'furnace-cook': {
+                const { input, fuel } = data;
+                const outputMap = { 'Raw Meat': 'Cooked Meat', 'Apple': null };
+                const fuels = ['Wood', 'Leaf', 'Raw Meat', 'Apple'];
+                if (!outputMap.hasOwnProperty(input) || !fuels.includes(fuel)) break;
+                const near = Object.values(structures).some(s => s.type === 'furnace' && getDistance(player, { x: s.x + s.size / 2, y: s.y + s.size / 2 }) < 150);
+                if (!near) break;
+                if (countItems(player, input) <= 0 || countItems(player, fuel) <= 0) break;
+                consumeItems(player, input, 1);
+                consumeItems(player, fuel, 1);
+                const result = outputMap[input];
+                if (result) addItemToPlayer(playerId, result, 1);
+                ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                break;
+            }
+            case 'craft-item': {
+                const recipe = RECIPES[data.itemName];
+                if (!recipe) return;
+                if (data.itemName !== 'Workbench') {
+                    const near = Object.values(structures).some(s => s.type === 'workbench' && getDistance(player, { x: s.x + s.size / 2, y: s.y + s.size / 2 }) < 150);
+                    if (!near) break;
+                }
+                let canCraft = true;
+                for (const i in recipe.cost) {
+                    if (countItems(player, i) < recipe.cost[i]) { canCraft = false; break; }
+                }
+                if (canCraft) {
+                    for (const i in recipe.cost) { consumeItems(player, i, recipe.cost[i]); }
+                    addItemToPlayer(playerId, recipe.result, 1);
+                }
+                break;
+            }
             case 'chat': broadcast({ type: 'chat-message', sender: playerId, message: data.message }); break;
         }
     });
@@ -447,6 +497,7 @@ function gameLoop() {
                 boar.vy = (dy / dist) * boar.speed;
                 if (dist < boar.size + target.size && boar.cooldown <= 0) {
                     target.hp = Math.max(0, target.hp - boar.damage);
+                    target.lastHitBy = 'boar';
                     boar.cooldown = 60;
                     const c = [...wss.clients].find(cl => cl.id === boar.target);
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
@@ -462,7 +513,7 @@ function gameLoop() {
         boar.wanderTimer--;
         const nx = boar.x + boar.vx;
         const ny = boar.y + boar.vy;
-        if (!isBlocked(nx, ny, boar.size)) {
+        if (!isBlocked(nx, ny, boar.size) && !collidesWithEntities(nx, ny, boar.size, boar)) {
             boar.x = nx;
             boar.y = ny;
         } else {
@@ -512,6 +563,7 @@ function gameLoop() {
                 zombie.vy = (dy / dist) * zombie.speed;
                 if (dist < zombie.size + target.size && zombie.cooldown <= 0) {
                     target.hp = Math.max(0, target.hp - zombie.damage);
+                    target.lastHitBy = 'zombie';
                     zombie.cooldown = 60;
                     const c = [...wss.clients].find(cl => cl.id === zombie.target);
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
@@ -521,7 +573,7 @@ function gameLoop() {
         zombie.wanderTimer--;
         const nx = zombie.x + zombie.vx;
         const ny = zombie.y + zombie.vy;
-        if (!isBlocked(nx, ny, zombie.size)) {
+        if (!isBlocked(nx, ny, zombie.size) && !collidesWithEntities(nx, ny, zombie.size, zombie)) {
             zombie.x = nx;
             zombie.y = ny;
         } else {
@@ -530,6 +582,20 @@ function gameLoop() {
         }
         zombie.x = Math.max(0, Math.min(WORLD_WIDTH, zombie.x));
         zombie.y = Math.max(0, Math.min(WORLD_HEIGHT, zombie.y));
+    }
+    const deadPlayers = [];
+    for (const id in players) {
+        if (players[id].hp <= 0) deadPlayers.push(id);
+    }
+    for (const id of deadPlayers) {
+        const p = players[id];
+        if (p.lastHitBy === 'zombie') {
+            zombies.push(createZombie(p.x, p.y));
+        }
+        const c = [...wss.clients].find(cl => cl.id === id);
+        if (c) c.send(JSON.stringify({ type: 'player-dead' }));
+        delete players[id];
+        broadcast({ type: 'player-death', playerId: id });
     }
     broadcast({ type: 'game-state', players, boars, zombies: dayNight.isDay ? [] : zombies, dayNight });
 }

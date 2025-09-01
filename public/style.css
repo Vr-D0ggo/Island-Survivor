@@ -239,3 +239,18 @@ canvas {
 #chat-input:focus {
     outline: 1px solid #fff;
 }
+
+/* Furnace UI */
+#furnace-screen {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(30,30,30,0.9);
+    border: 2px solid #aaa;
+    padding: 20px;
+    border-radius: 10px;
+    pointer-events: auto;
+}
+#furnace-screen.hidden { display: none; }
+#furnace-panel { display: flex; flex-direction: column; gap: 10px; }

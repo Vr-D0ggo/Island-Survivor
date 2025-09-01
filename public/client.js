@@ -36,6 +36,7 @@ const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
+const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
 const ITEM_ICONS = {
     'Wood': 'wood.png',
     'Stone': 'stone.png',
@@ -51,7 +52,7 @@ const ITEM_ICONS = {
     'Stone Pickaxe': 'Pickaxe.png',
     'Stone Sword': 'Sword.png',
     'Workbench': 'workbench.png',
-    'Furnace': 'stone.png'
+    'Furnace': 'Oven.png'
 };
 const RECIPES = {
     Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' },
@@ -68,6 +69,10 @@ const RECIPES = {
 const keys = {}; window.addEventListener('keydown', e => keys[e.code] = true); window.addEventListener('keyup', e => keys[e.code] = false);
 const hotbarSlots = [document.getElementById('hotbar-0'), document.getElementById('hotbar-1'), document.getElementById('hotbar-2'), document.getElementById('hotbar-3')];
 const inventoryScreen = document.getElementById('inventory-screen'); const inventoryGrid = document.getElementById('inventory-grid'); const recipeList = document.getElementById('recipe-list');
+const furnaceScreen = document.getElementById('furnace-screen');
+const furnaceInput = document.getElementById('furnace-input');
+const furnaceFuel = document.getElementById('furnace-fuel');
+const furnaceCookBtn = document.getElementById('furnace-cook-btn');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 const healthFill = document.getElementById('player-health-fill');
 let selectedHotbarSlot = 0;
@@ -165,9 +170,10 @@ socket.onmessage = event => {
             break;
         case 'player-join': if (data.player.id !== myPlayerId) { players[data.player.id] = data.player; initializePlayerForRender(players[data.player.id]); } break;
         case 'player-leave': delete players[data.playerId]; break;
+        case 'player-death': delete players[data.playerId]; break;
         case 'resource-update': const resIndex = resources.findIndex(r => r.id === data.resource.id); if (resIndex !== -1) resources[resIndex] = data.resource; break;
         case 'structure-update': structures = data.structures; break;
-        case 'inventory-update': const me = players[myPlayerId]; if (me) { me.inventory = data.inventory; me.hotbar = data.hotbar; if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } updateHotbarUI(); } break;
+        case 'inventory-update': const me = players[myPlayerId]; if (me) { me.inventory = data.inventory; me.hotbar = data.hotbar; if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } if (!furnaceScreen.classList.contains('hidden')) { updateFurnaceUI(); } updateHotbarUI(); } break;
         case 'item-pickup-notif': createFloatingText(`+${data.amount} ${data.item}`, players[myPlayerId].x, players[myPlayerId].y); break;
         case 'notification': showNotification(data.message); break;
         case 'boar-update': {
@@ -181,12 +187,43 @@ socket.onmessage = event => {
             break;
         }
         case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
+        case 'player-dead': alert('You died!'); break;
         case 'chat-message': addChatMessage(data.sender, data.message); break;
     }
 };
 
 // --- UI Functions ---
-function updateCraftingUI() { const me = players[myPlayerId]; if (!me) return; recipeList.innerHTML = ''; const countItems = (itemName) => { let total = 0; [...me.inventory, ...me.hotbar].forEach(slot => { if (slot && slot.item === itemName) total += slot.quantity; }); return total; }; for (const recipeName in RECIPES) { const recipe = RECIPES[recipeName]; let canCraft = true; let costString = ''; for (const ingredient in recipe.cost) { const owned = countItems(ingredient); const needed = recipe.cost[ingredient]; if (owned < needed) canCraft = false; costString += `${ingredient}: ${owned}/${needed} `; } const recipeEl = document.createElement('div'); recipeEl.className = 'recipe'; if (!canCraft) recipeEl.classList.add('disabled'); recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${recipeName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>Craft</button>`; if (canCraft) { recipeEl.querySelector('button').onclick = () => { socket.send(JSON.stringify({ type: 'craft-item', itemName: recipeName })); }; } recipeList.appendChild(recipeEl); } }
+function updateCraftingUI() {
+    const me = players[myPlayerId];
+    if (!me) return;
+    recipeList.innerHTML = '';
+    const countItems = (itemName) => {
+        let total = 0;
+        [...me.inventory, ...me.hotbar].forEach(slot => { if (slot && slot.item === itemName) total += slot.quantity; });
+        return total;
+    };
+    const nearWorkbench = Object.values(structures).some(s => s.type === 'workbench' && Math.hypot((s.x + s.size / 2) - me.x, (s.y + s.size / 2) - me.y) < 150);
+    for (const recipeName in RECIPES) {
+        if (recipeName !== 'Workbench' && !nearWorkbench) continue;
+        const recipe = RECIPES[recipeName];
+        let canCraft = true;
+        let costString = '';
+        for (const ingredient in recipe.cost) {
+            const owned = countItems(ingredient);
+            const needed = recipe.cost[ingredient];
+            if (owned < needed) canCraft = false;
+            costString += `${ingredient}: ${owned}/${needed} `;
+        }
+        const recipeEl = document.createElement('div');
+        recipeEl.className = 'recipe';
+        if (!canCraft) recipeEl.classList.add('disabled');
+        recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${recipeName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>Craft</button>`;
+        if (canCraft) {
+            recipeEl.querySelector('button').onclick = () => { socket.send(JSON.stringify({ type: 'craft-item', itemName: recipeName })); };
+        }
+        recipeList.appendChild(recipeEl);
+    }
+}
 function updateInventoryUI(){
     const me = players[myPlayerId];
     if(!me || !me.inventory) return;
@@ -222,6 +259,28 @@ function updateInventoryUI(){
             }
         }
         inventoryGrid.appendChild(slot);
+    });
+}
+
+function updateFurnaceUI() {
+    const me = players[myPlayerId];
+    if (!me) return;
+    const allItems = [...me.hotbar, ...me.inventory].filter(s => s);
+    const inputOptions = allItems.filter(s => s.item === 'Raw Meat' || s.item === 'Apple');
+    const fuelOptions = allItems.filter(s => ['Wood', 'Leaf', 'Raw Meat', 'Apple'].includes(s.item));
+    furnaceInput.innerHTML = '';
+    inputOptions.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.item;
+        opt.textContent = `${s.item} (${s.quantity})`;
+        furnaceInput.appendChild(opt);
+    });
+    furnaceFuel.innerHTML = '';
+    fuelOptions.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.item;
+        opt.textContent = `${s.item} (${s.quantity})`;
+        furnaceFuel.appendChild(opt);
     });
 }
 function updateHotbarUI() {
@@ -331,13 +390,36 @@ canvas.addEventListener('mousedown', e => {
 });
 canvas.addEventListener('contextmenu', e => {
     e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left + camera.x;
+    const mouseY = e.clientY - rect.top + camera.y;
+    let key = null;
+    const blockX = Math.floor(mouseX / BLOCK_SIZE);
+    const blockY = Math.floor(mouseY / BLOCK_SIZE);
+    if (structures[`b${blockX},${blockY}`]) {
+        key = `b${blockX},${blockY}`;
+    } else {
+        const gridX = Math.floor(mouseX / GRID_CELL_SIZE);
+        const gridY = Math.floor(mouseY / GRID_CELL_SIZE);
+        if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
+    }
+    if (key && structures[key] && structures[key].type === 'furnace') {
+        const me = players[myPlayerId];
+        if (me) {
+            const s = structures[key];
+            const cx = s.x + s.size / 2;
+            const cy = s.y + s.size / 2;
+            if (Math.hypot(me.x - cx, me.y - cy) < me.size + s.size) {
+                furnaceScreen.classList.remove('hidden');
+                updateFurnaceUI();
+                return;
+            }
+        }
+    }
     const me = players[myPlayerId];
     if (!me || !me.hotbar) return;
     const selectedItem = me.hotbar[selectedHotbarSlot];
     if (!selectedItem) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left + camera.x;
-    const mouseY = e.clientY - rect.top + camera.y;
     const snap = selectedItem.item === 'Workbench' ? GRID_CELL_SIZE : BLOCK_SIZE;
     const targetX = Math.floor(mouseX / snap) * snap;
     const targetY = Math.floor(mouseY / snap) * snap;
@@ -492,6 +574,8 @@ function drawStructure(structure) {
         ctx.strokeRect(structure.x, structure.y, size, size);
     } else if (structure.type === 'workbench') {
         ctx.drawImage(workbenchImg, structure.x, structure.y, size, size);
+    } else if (structure.type === 'furnace') {
+        ctx.drawImage(ovenImg, structure.x, structure.y, size, size);
     }
 }
 function render() {
@@ -554,6 +638,10 @@ function gameLoop() {
 function createFloatingText(text, x, y) { const el = document.createElement('div'); el.className = 'floating-text'; el.textContent = text; document.body.appendChild(el); function updatePos(){ const screenX = x - camera.x; const screenY = y - camera.y; el.style.left = `${screenX}px`; el.style.top = `${screenY}px`; if (getComputedStyle(el).opacity > 0) requestAnimationFrame(updatePos); } updatePos(); setTimeout(() => el.remove(), 1500); }
 function showNotification(message){ const cont = document.getElementById('notifications'); const n = document.createElement('div'); n.className='notification-message'; n.textContent = message; cont.appendChild(n); setTimeout(()=>n.remove(), 5000); }
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') { if(chatInput.value.trim().length > 0) { socket.send(JSON.stringify({ type: 'chat', message: chatInput.value })); chatInput.value = ''; } chatInput.blur(); } });
+furnaceCookBtn.addEventListener('click', () => {
+    socket.send(JSON.stringify({ type: 'furnace-cook', input: furnaceInput.value, fuel: furnaceFuel.value }));
+    furnaceScreen.classList.add('hidden');
+});
 function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
@@ -561,6 +649,11 @@ window.addEventListener('keydown', e => { if (document.activeElement !== chatInp
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
+    }
+});
+window.addEventListener('keydown', e => {
+    if (e.code === 'Escape' && !furnaceScreen.classList.contains('hidden')) {
+        furnaceScreen.classList.add('hidden');
     }
 });
 updateHotbarUI();
