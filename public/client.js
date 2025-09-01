@@ -27,6 +27,8 @@ let resources = [];
 let structures = {}; // Start as empty object to prevent crashes
 let boars = [];
 let zombies = [];
+let ogres = [];
+let groundItems = [];
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -54,6 +56,7 @@ const ITEM_ICONS = {
     'Workbench': 'workbench.png',
     'Furnace': 'Oven.png'
 };
+const itemImages = {};
 const RECIPES = {
     Workbench: { cost: { Wood: 5, Stone: 2 }, icon: 'workbench.png' },
     'Wooden Axe': { cost: { Wood: 3 }, icon: ITEM_ICONS['Wooden Axe'] },
@@ -78,6 +81,8 @@ const healthFill = document.getElementById('player-health-fill');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragSrcIndex = null;
+let deathFade = 0;
+let deathFadeDir = 0;
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
@@ -134,6 +139,8 @@ socket.onmessage = event => {
             structures = data.structures || {};
             boars = data.boars || [];
             zombies = data.zombies || [];
+            ogres = data.ogres || [];
+            groundItems = data.groundItems || [];
             dayNight = data.dayNight || dayNight;
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
@@ -146,6 +153,8 @@ socket.onmessage = event => {
             if (lastIsDay !== dayNight.isDay) playMusicForPhase(dayNight.isDay);
             boars = data.boars || boars;
             zombies = data.zombies || zombies;
+            ogres = data.ogres || ogres;
+            groundItems = data.groundItems || groundItems;
             for (const id in data.players) {
                 if (id === myPlayerId) {
                     const serverPlayer = data.players[id];
@@ -170,7 +179,6 @@ socket.onmessage = event => {
             break;
         case 'player-join': if (data.player.id !== myPlayerId) { players[data.player.id] = data.player; initializePlayerForRender(players[data.player.id]); } break;
         case 'player-leave': delete players[data.playerId]; break;
-        case 'player-death': delete players[data.playerId]; break;
         case 'resource-update': const resIndex = resources.findIndex(r => r.id === data.resource.id); if (resIndex !== -1) resources[resIndex] = data.resource; break;
         case 'structure-update': structures = data.structures; break;
         case 'inventory-update': const me = players[myPlayerId]; if (me) { me.inventory = data.inventory; me.hotbar = data.hotbar; if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } if (!furnaceScreen.classList.contains('hidden')) { updateFurnaceUI(); } updateHotbarUI(); } break;
@@ -186,8 +194,13 @@ socket.onmessage = event => {
             if (idx !== -1) zombies[idx] = data.zombie; else zombies.push(data.zombie);
             break;
         }
+        case 'ogre-update': {
+            const idx = ogres.findIndex(o => o.id === data.ogre.id);
+            if (idx !== -1) ogres[idx] = data.ogre; else ogres.push(data.ogre);
+            break;
+        }
         case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
-        case 'player-dead': alert('You died!'); break;
+        case 'player-dead': deathFade = 0; deathFadeDir = 1; break;
         case 'chat-message': addChatMessage(data.sender, data.message); break;
     }
 };
@@ -455,6 +468,17 @@ function drawPlayer(player, isMe) {
     ctx.fill();
     const nx = Math.cos(angle) * player.size * 0.6;
     const ny = Math.sin(angle) * player.size * 0.6;
+    const held = player.hotbar && player.hotbar[player.heldIndex];
+    if (held) {
+        const icon = ITEM_ICONS[held.item];
+        if (icon) {
+            if (!itemImages[icon]) { const img = new Image(); img.src = `/icons/${icon}`; itemImages[icon] = img; }
+            const img = itemImages[icon];
+            const hx = x + Math.cos(angle) * (player.size + 10);
+            const hy = y + Math.sin(angle) * (player.size + 10);
+            ctx.drawImage(img, hx - 12, hy - 12, 24, 24);
+        }
+    }
     ctx.beginPath();
     ctx.arc(x + nx, y + ny, player.size * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
@@ -514,7 +538,9 @@ function drawBoar(boar) {
         ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
         ctx.globalCompositeOperation = 'source-atop';
         ctx.fillStyle = boar.color;
-        ctx.fillRect(boar.x - size / 2, boar.y - size / 2, size, size);
+        ctx.beginPath();
+        ctx.arc(boar.x, boar.y, size / 2, 0, Math.PI * 2);
+        ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
     } else {
@@ -559,6 +585,30 @@ function drawZombie(zombie) {
         ctx.fillStyle = 'green';
         ctx.fillRect(x - zombie.size, y - zombie.size - 10, (zombie.hp / zombie.maxHp) * zombie.size * 2, 6);
     }
+}
+
+function drawOgre(ogre) {
+    ctx.beginPath();
+    ctx.arc(ogre.x, ogre.y, ogre.size, 0, Math.PI * 2);
+    ctx.fillStyle = '#800080';
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    if (ogre.hp < ogre.maxHp) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(ogre.x - ogre.size, ogre.y - ogre.size - 10, ogre.size * 2, 6);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(ogre.x - ogre.size, ogre.y - ogre.size - 10, (ogre.hp / ogre.maxHp) * ogre.size * 2, 6);
+    }
+}
+
+function drawGroundItem(item) {
+    const icon = ITEM_ICONS[item.item];
+    if (!icon) return;
+    if (!itemImages[icon]) { const img = new Image(); img.src = `/icons/${icon}`; itemImages[icon] = img; }
+    const img = itemImages[icon];
+    ctx.drawImage(img, item.x - 16, item.y - 16, 32, 32);
 }
 function drawStructure(structure) {
     const size = structure.size || (structure.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
@@ -605,13 +655,24 @@ function render() {
     for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); }
     for (let y = 0; y <= WORLD_HEIGHT; y += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke(); }
     resources.forEach(drawResource);
+    groundItems.forEach(drawGroundItem);
     boars.forEach(drawBoar);
+    ogres.forEach(drawOgre);
     zombies.forEach(drawZombie);
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
     ctx.restore();
     ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (deathFadeDir !== 0) {
+        deathFade += 0.02 * deathFadeDir;
+        if (deathFade >= 1) { deathFade = 1; deathFadeDir = -1; }
+        if (deathFade <= 0) { deathFade = 0; deathFadeDir = 0; }
+    }
+    if (deathFade > 0) {
+        ctx.fillStyle = `rgba(0,0,0,${deathFade})`;
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+    }
 }
 let gameLoopStarted = false;
 function gameLoop() {
