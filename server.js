@@ -78,6 +78,14 @@ function generateWorld() {
 function createBoar(x, y) {
     const size = 20;
     const hp = 15;
+    const behaviors = [
+        { type: 'sight', color: '#000000' },          // attacks on sight
+        { type: 'stand', color: '#555555' },          // waits until player is very close
+        { type: 'retaliate', color: '#8B4513' },      // attacks only if hit
+        { type: 'half', color: '#A0522D' },           // attacks after dropping to half HP
+        { type: 'passive', color: null }              // never attacks
+    ];
+    const behavior = behaviors[Math.floor(Math.random() * behaviors.length)];
     return {
         id: nextBoarId++,
         x,
@@ -92,7 +100,9 @@ function createBoar(x, y) {
         cooldown: 0,
         vx: 0,
         vy: 0,
-        wanderTimer: 0
+        wanderTimer: 0,
+        behavior: behavior.type,
+        color: behavior.color
     };
 }
 
@@ -285,8 +295,12 @@ wss.on('connection', ws => {
                         if (Math.random() < 0.1) addItemToPlayer(playerId, 'Tusk', 1);
                         boars = boars.filter(b => b.id !== boar.id);
                     } else {
-                        boar.aggressive = true;
-                        boar.target = playerId;
+                        if (boar.behavior !== 'passive') {
+                            if (boar.behavior !== 'half' || boar.hp <= boar.maxHp / 2) {
+                                boar.aggressive = true;
+                                boar.target = playerId;
+                            }
+                        }
                     }
                     broadcast({ type: 'boar-update', boar });
                 }
@@ -476,12 +490,25 @@ function gameLoop() {
     for (const boar of boars) {
         if (boar.cooldown > 0) boar.cooldown--;
         if (!boar.aggressive) {
-            for (const id in players) {
-                const p = players[id];
-                if (getDistance(p, boar) < 150) {
-                    boar.aggressive = true;
-                    boar.target = id;
-                    break;
+            if (boar.behavior === 'sight') {
+                for (const id in players) {
+                    const p = players[id];
+                    if (getDistance(p, boar) < 150) {
+                        boar.aggressive = true;
+                        boar.target = id;
+                        break;
+                    }
+                }
+            } else if (boar.behavior === 'stand') {
+                boar.vx = 0;
+                boar.vy = 0;
+                for (const id in players) {
+                    const p = players[id];
+                    if (getDistance(p, boar) < 80) {
+                        boar.aggressive = true;
+                        boar.target = id;
+                        break;
+                    }
                 }
             }
         } else {
@@ -504,13 +531,17 @@ function gameLoop() {
                 }
             }
         }
-        if (!boar.aggressive && boar.wanderTimer <= 0) {
+        if (!boar.aggressive && boar.behavior !== 'stand' && boar.wanderTimer <= 0) {
             const angle = Math.random() * Math.PI * 2;
             boar.vx = Math.cos(angle) * boar.speed;
             boar.vy = Math.sin(angle) * boar.speed;
             boar.wanderTimer = 60 + Math.floor(Math.random() * 120);
         }
-        boar.wanderTimer--;
+        if (boar.behavior === 'stand') {
+            boar.wanderTimer = 0;
+        } else {
+            boar.wanderTimer--;
+        }
         const nx = boar.x + boar.vx;
         const ny = boar.y + boar.vy;
         if (!isBlocked(nx, ny, boar.size) && !collidesWithEntities(nx, ny, boar.size, boar)) {
