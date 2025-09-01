@@ -26,6 +26,7 @@ let players = {};
 let resources = [];
 let structures = {}; // Start as empty object to prevent crashes
 let boars = [];
+let zombies = [];
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -127,6 +128,7 @@ socket.onmessage = event => {
             resources = data.resources || [];
             structures = data.structures || {};
             boars = data.boars || [];
+            zombies = data.zombies || [];
             dayNight = data.dayNight || dayNight;
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
@@ -138,6 +140,7 @@ socket.onmessage = event => {
             dayNight = data.dayNight;
             if (lastIsDay !== dayNight.isDay) playMusicForPhase(dayNight.isDay);
             boars = data.boars || boars;
+            zombies = data.zombies || zombies;
             for (const id in data.players) {
                 if (id === myPlayerId) {
                     const serverPlayer = data.players[id];
@@ -170,6 +173,11 @@ socket.onmessage = event => {
         case 'boar-update': {
             const idx = boars.findIndex(b => b.id === data.boar.id);
             if (idx !== -1) boars[idx] = data.boar; else boars.push(data.boar);
+            break;
+        }
+        case 'zombie-update': {
+            const idx = zombies.findIndex(z => z.id === data.zombie.id);
+            if (idx !== -1) zombies[idx] = data.zombie; else zombies.push(data.zombie);
             break;
         }
         case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
@@ -289,6 +297,11 @@ canvas.addEventListener('mousedown', e => {
         const dist = Math.hypot(mouseX - boar.x, mouseY - boar.y);
         if (dist < boar.size && dist < boarDist) { boarDist = dist; closestBoar = boar; }
     }
+    let closestZombie = null; let zombieDist = Infinity;
+    for (const zombie of zombies) {
+        const dist = Math.hypot(mouseX - zombie.x, mouseY - zombie.y);
+        if (dist < zombie.size && dist < zombieDist) { zombieDist = dist; closestZombie = zombie; }
+    }
     let closestResource = null; let closestDist = Infinity;
     for (const resource of resources) {
         if (!resource.harvested) {
@@ -298,6 +311,8 @@ canvas.addEventListener('mousedown', e => {
     }
     if (closestBoar) {
         socket.send(JSON.stringify({ type: 'hit-boar', boarId: closestBoar.id, item: selectedItem ? selectedItem.item : null }));
+    } else if (closestZombie) {
+        socket.send(JSON.stringify({ type: 'hit-zombie', zombieId: closestZombie.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
     } else {
@@ -430,6 +445,39 @@ function drawBoar(boar) {
         ctx.fillRect(boar.x - boar.size, boar.y - boar.size - 10, (boar.hp / boar.maxHp) * boar.size * 2, 6);
     }
 }
+function drawZombie(zombie) {
+    const x = zombie.x;
+    const y = zombie.y;
+    const angle = zombie.angle || 0;
+    ctx.beginPath();
+    ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
+    ctx.fillStyle = '#6b8e23';
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    const eyeAngle = angle + Math.PI / 2;
+    const eyeOffset = zombie.size * 0.4;
+    const ex = Math.cos(eyeAngle) * eyeOffset;
+    const ey = Math.sin(eyeAngle) * eyeOffset;
+    ctx.beginPath();
+    ctx.arc(x + ex, y + ey, zombie.size * 0.2, 0, Math.PI * 2);
+    ctx.arc(x - ex, y - ey, zombie.size * 0.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#ccc';
+    ctx.fill();
+    const nx = Math.cos(angle) * zombie.size * 0.6;
+    const ny = Math.sin(angle) * zombie.size * 0.6;
+    ctx.beginPath();
+    ctx.arc(x + nx, y + ny, zombie.size * 0.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    if (zombie.hp < zombie.maxHp) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(x - zombie.size, y - zombie.size - 10, zombie.size * 2, 6);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(x - zombie.size, y - zombie.size - 10, (zombie.hp / zombie.maxHp) * zombie.size * 2, 6);
+    }
+}
 function drawStructure(structure) {
     const size = structure.size || (structure.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
     if (structure.type === 'wood_wall') {
@@ -474,6 +522,7 @@ function render() {
     for (let y = 0; y <= WORLD_HEIGHT; y += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke(); }
     resources.forEach(drawResource);
     boars.forEach(drawBoar);
+    zombies.forEach(drawZombie);
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
     ctx.restore();
