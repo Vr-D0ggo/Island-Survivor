@@ -149,7 +149,8 @@ function createZombie(x, y) {
         vx: 0,
         vy: 0,
         wanderTimer: 0,
-        angle: 0
+        angle: 0,
+        burn: 0
     };
 }
 
@@ -269,6 +270,33 @@ function moveToward(entity, target) {
     entity.vy = 0;
 }
 
+function isInShadow(entity) {
+    for (const r of resources) {
+        if (!r.harvested && getDistance(entity, r) < r.size) return true;
+    }
+    for (const key in structures) {
+        const s = structures[key];
+        const size = s.size || (s.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
+        const cx = s.x + size / 2;
+        const cy = s.y + size / 2;
+        if (Math.abs(entity.x - cx) < size / 2 && Math.abs(entity.y - cy) < size / 2) return true;
+    }
+    for (const id in players) {
+        const p = players[id];
+        if (p !== entity && getDistance(entity, p) < p.size * 1.2) return true;
+    }
+    for (const b of boars) {
+        if (b !== entity && getDistance(entity, b) < b.size * 1.2) return true;
+    }
+    for (const o of ogres) {
+        if (o !== entity && getDistance(entity, o) < o.size * 1.2) return true;
+    }
+    for (const z of zombies) {
+        if (z !== entity && getDistance(entity, z) < z.size * 1.2) return true;
+    }
+    return false;
+}
+
 // --- WebSocket Connection Handling ---
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
@@ -277,7 +305,7 @@ wss.on('connection', ws => {
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
-        type: 'init', playerId, players, myPlayerData: newPlayer, resources, structures, boars, zombies: dayNight.isDay ? [] : zombies, ogres, groundItems, projectiles, dayNight
+        type: 'init', playerId, players, myPlayerData: newPlayer, resources, structures, boars, zombies, ogres, groundItems, projectiles, dayNight
     }));
 
     players[playerId] = newPlayer;
@@ -550,6 +578,7 @@ function gameLoop() {
                 z.y = z.homeY;
                 z.aggressive = false;
                 z.target = null;
+                z.burn = 0;
             });
         }
     }
@@ -634,7 +663,13 @@ function gameLoop() {
 
     for (const zombie of zombies) {
         if (zombie.cooldown > 0) zombie.cooldown--;
-        if (dayNight.isDay) continue;
+        if (dayNight.isDay && !isInShadow(zombie)) {
+            zombie.burn = 120;
+        }
+        if (zombie.burn > 0) {
+            zombie.burn--;
+            if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
+        }
         if (!zombie.aggressive) {
             let detected = false;
             for (const id in players) {
@@ -689,6 +724,7 @@ function gameLoop() {
         zombie.x = Math.max(0, Math.min(WORLD_WIDTH, zombie.x));
         zombie.y = Math.max(0, Math.min(WORLD_HEIGHT, zombie.y));
     }
+    zombies = zombies.filter(z => z.hp > 0);
 
     for (const ogre of ogres) {
         if (ogre.cooldown > 0) ogre.cooldown--;
@@ -767,7 +803,7 @@ function gameLoop() {
         }
         return true;
     });
-    broadcast({ type: 'game-state', players, boars, zombies: dayNight.isDay ? [] : zombies, ogres, groundItems, projectiles, dayNight });
+    broadcast({ type: 'game-state', players, boars, zombies, ogres, groundItems, projectiles, dayNight });
 }
 generateWorld();
 setInterval(gameLoop, 1000 / 60);

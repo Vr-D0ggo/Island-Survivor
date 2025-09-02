@@ -128,6 +128,15 @@ function updatePlayerHealthBar() {
     }
 }
 
+function drawShadow(x, y, w, h) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + h / 2, w / 2, h / 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
 // --- WebSocket Message Handling ---
 socket.onmessage = event => {
     const data = JSON.parse(event.data);
@@ -161,25 +170,22 @@ socket.onmessage = event => {
             groundItems = data.groundItems || groundItems;
             projectiles = data.projectiles || projectiles;
             for (const id in data.players) {
-                if (id === myPlayerId) {
+                if (players[id]) {
                     const serverPlayer = data.players[id];
                     const clientPlayer = players[id];
-                    if (clientPlayer) {
+                    clientPlayer.heldIndex = serverPlayer.heldIndex;
+                    clientPlayer.hp = serverPlayer.hp;
+                    clientPlayer.burn = serverPlayer.burn;
+                    if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
-                        clientPlayer.hp = serverPlayer.hp;
-                        clientPlayer.burn = serverPlayer.burn;
+                    } else {
+                        clientPlayer.targetX = serverPlayer.x;
+                        clientPlayer.targetY = serverPlayer.y;
                     }
                 } else {
-                    if (players[id]) {
-                        players[id].targetX = data.players[id].x;
-                        players[id].targetY = data.players[id].y;
-                        players[id].hp = data.players[id].hp;
-                        players[id].burn = data.players[id].burn;
-                    } else {
-                        players[id] = data.players[id];
-                        initializePlayerForRender(players[id]);
-                    }
+                    players[id] = data.players[id];
+                    initializePlayerForRender(players[id]);
                 }
             }
             updatePlayerHealthBar();
@@ -451,6 +457,7 @@ function drawPlayer(player, isMe) {
     if (!player || player.x === undefined) return;
     const x = isMe ? player.x : player.renderX;
     const y = isMe ? player.y : player.renderY;
+    drawShadow(x, y, player.size * 2, player.size);
     ctx.beginPath();
     ctx.arc(x, y, player.size, 0, Math.PI * 2);
     ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)';
@@ -509,6 +516,7 @@ function drawPlayer(player, isMe) {
 function drawResource(resource) {
     if (resource.harvested) {
         if (resource.type === 'tree') {
+            drawShadow(resource.x, resource.y, resource.size / 2, resource.size / 4);
             ctx.fillStyle = '#654321';
             ctx.beginPath();
             ctx.arc(resource.x, resource.y, resource.size / 4, 0, Math.PI * 2);
@@ -518,6 +526,7 @@ function drawResource(resource) {
     }
     if (resource.type === 'tree') {
         const trunkSize = resource.size / 4;
+        drawShadow(resource.x, resource.y, resource.size, resource.size / 2);
         ctx.drawImage(treeTrunkImg, resource.x - trunkSize / 2, resource.y - trunkSize / 2, trunkSize, trunkSize);
         if (resource.phase === 1) {
             ctx.drawImage(treeTopImg, resource.x - resource.size / 2, resource.y - resource.size / 2, resource.size, resource.size);
@@ -534,6 +543,7 @@ function drawResource(resource) {
             ctx.restore();
         }
     } else if (resource.type === 'rock') {
+        drawShadow(resource.x, resource.y, resource.size, resource.size / 2);
         ctx.fillStyle = '#808080';
         ctx.beginPath();
         ctx.arc(resource.x, resource.y, resource.size / 2, 0, Math.PI * 2);
@@ -549,6 +559,7 @@ function drawResource(resource) {
 }
 function drawBoar(boar) {
     const size = boar.size * 2;
+    drawShadow(boar.x, boar.y, size, size / 2);
     if (boar.color) {
         ctx.save();
         ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
@@ -574,6 +585,7 @@ function drawZombie(zombie) {
     const x = zombie.x;
     const y = zombie.y;
     const angle = zombie.angle || 0;
+    drawShadow(x, y, zombie.size * 2, zombie.size);
     ctx.beginPath();
     ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
     ctx.fillStyle = '#6b8e23';
@@ -596,6 +608,15 @@ function drawZombie(zombie) {
     ctx.arc(x + nx, y + ny, zombie.size * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
     ctx.fill();
+    if (zombie.burn && zombie.burn > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
     if (zombie.hp < zombie.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(x - zombie.size, y - zombie.size - 10, zombie.size * 2, 6);
@@ -605,6 +626,7 @@ function drawZombie(zombie) {
 }
 
 function drawOgre(ogre) {
+    drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
     ctx.beginPath();
     ctx.arc(ogre.x, ogre.y, ogre.size, 0, Math.PI * 2);
     ctx.fillStyle = '#800080';
@@ -631,6 +653,7 @@ function drawOgre(ogre) {
 }
 
 function drawProjectile(p) {
+    drawShadow(p.x, p.y, 16, 8);
     ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
 }
 
@@ -639,10 +662,12 @@ function drawGroundItem(item) {
     if (!icon) return;
     if (!itemImages[icon]) { const img = new Image(); img.src = `/icons/${icon}`; itemImages[icon] = img; }
     const img = itemImages[icon];
+    drawShadow(item.x, item.y, 32, 16);
     ctx.drawImage(img, item.x - 16, item.y - 16, 32, 32);
 }
 function drawStructure(structure) {
     const size = structure.size || (structure.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
+    drawShadow(structure.x + size / 2, structure.y + size / 2, size, size / 2);
     if (structure.type === 'wood_wall') {
         ctx.fillStyle = '#8B4513';
         ctx.fillRect(structure.x, structure.y, size, size);
@@ -738,7 +763,17 @@ furnaceCookBtn.addEventListener('click', () => {
 function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
-window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot })); } }});
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code.startsWith('Digit')) {
+        const digit = parseInt(e.code.replace('Digit', '')) - 1;
+        if (digit >= 0 && digit < 4) {
+            selectedHotbarSlot = digit;
+            if (players[myPlayerId]) players[myPlayerId].heldIndex = selectedHotbarSlot;
+            updateHotbarUI();
+            socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot }));
+        }
+    }
+});
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
