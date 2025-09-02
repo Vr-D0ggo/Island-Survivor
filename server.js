@@ -235,6 +235,11 @@ function getDamage(item, target) {
         if (name === 'stone sword') return 6;
         if (name === 'tusk') return 7;
         if (name.includes('axe') || name.includes('pickaxe')) return 2;
+    } else if (target === 'player') {
+        if (name === 'wooden sword') return 4;
+        if (name === 'stone sword') return 6;
+        if (name === 'tusk') return 7;
+        if (name.includes('axe') || name.includes('pickaxe')) return 2;
     } else if (target === 'ogre') {
         if (name === 'wooden sword') return 3;
         if (name === 'stone sword') return 5;
@@ -419,6 +424,14 @@ wss.on('connection', ws => {
                     broadcast({ type: 'player-join', player });
                 }
                 break;
+            case 'set-class':
+                if (['knight', 'mage', 'summoner'].includes(data.class)) {
+                    player.class = data.class;
+                    if (!player.skills) player.skills = {};
+                    player.skills.range = true;
+                    player.skills[data.class] = true;
+                }
+                break;
             case 'hit-resource': {
                 const resource = resources.find(r => r.id === data.resourceId);
                 if (resource && !resource.harvested && getDistance(player, resource) < player.size + resource.size) {
@@ -458,6 +471,20 @@ wss.on('connection', ws => {
                         }, respawnTime);
                     }
                     broadcast({ type: 'resource-update', resource });
+                }
+                break;
+            }
+            case 'hit-player': {
+                const target = players[data.targetId];
+                if (target && target.active && target.invulnerable <= 0 && getDistance(player, target) < player.size + target.size + 20 + (player.attackRange || 0)) {
+                    let dmg = getDamage(data.item, 'player');
+                    if (player.class === 'knight' && data.item && data.item.toLowerCase().includes('sword')) {
+                        dmg += player.swordDamage || 0;
+                    }
+                    target.hp = Math.max(0, target.hp - dmg);
+                    target.lastHitBy = playerId;
+                    const c = [...wss.clients].find(cl => cl.id === data.targetId);
+                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
                 }
                 break;
             }

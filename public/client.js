@@ -96,6 +96,10 @@ const menuBtn = document.getElementById('menu-btn');
 const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
 const startBtn = document.getElementById('start-btn');
+const controlsScreen = document.getElementById('controls-screen');
+const controlsBtn = document.getElementById('controls-btn');
+const classScreen = document.getElementById('class-screen');
+const classButtons = document.querySelectorAll('.class-option');
 const levelIndicator = document.getElementById('level-indicator');
 const skillTree = document.getElementById('skill-tree');
 const skillPointsElem = document.getElementById('skill-points');
@@ -130,7 +134,17 @@ let preSpawn = true;
 let spectatorTarget = null;
 if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'respawn' })); };
 if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
-if (startBtn) startBtn.onclick = () => { preSpawn = false; preSpawnScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' })); };
+if (controlsBtn) controlsBtn.onclick = () => { controlsScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); };
+if (startBtn) startBtn.onclick = () => { preSpawnScreen.classList.add('hidden'); classScreen.classList.remove('hidden'); };
+classButtons.forEach(btn => {
+    btn.onclick = () => {
+        const cls = btn.dataset.class;
+        classScreen.classList.add('hidden');
+        preSpawn = false;
+        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' }));
+        socket.send(JSON.stringify({ type: 'set-class', class: cls }));
+    };
+});
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
@@ -552,12 +566,19 @@ function playerMovement() {
     }
 }
 canvas.addEventListener('mousedown', e => {
-    if (!myPlayerId || !players[myPlayerId] || e.button !== 0) return;
+    if (!myPlayerId || !players[myPlayerId] || e.button !== 0 || preSpawn) return;
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
     const me = players[myPlayerId];
     const selectedItem = me.hotbar[selectedHotbarSlot];
+    let closestPlayer = null; let playerDist = Infinity;
+    for (const id in players) {
+        if (id === myPlayerId) continue;
+        const p = players[id];
+        const dist = Math.hypot(mouseX - p.x, mouseY - p.y);
+        if (dist < p.size && dist < playerDist) { playerDist = dist; closestPlayer = { id, data: p }; }
+    }
     let closestBoar = null; let boarDist = Infinity;
     for (const boar of boars) {
         const dist = Math.hypot(mouseX - boar.x, mouseY - boar.y);
@@ -580,7 +601,9 @@ canvas.addEventListener('mousedown', e => {
             if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; }
         }
     }
-    if (closestBoar) {
+    if (closestPlayer) {
+        socket.send(JSON.stringify({ type: 'hit-player', targetId: closestPlayer.id, item: selectedItem ? selectedItem.item : null }));
+    } else if (closestBoar) {
         socket.send(JSON.stringify({ type: 'hit-boar', boarId: closestBoar.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestZombie) {
         socket.send(JSON.stringify({ type: 'hit-zombie', zombieId: closestZombie.id, item: selectedItem ? selectedItem.item : null }));
