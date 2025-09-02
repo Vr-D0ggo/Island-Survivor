@@ -29,6 +29,7 @@ let boars = [];
 let zombies = [];
 let ogres = [];
 let groundItems = [];
+let projectiles = [];
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -39,6 +40,8 @@ const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
+const fireStaffImg = new Image(); fireStaffImg.src = '/icons/FireStaff.png';
+const fireBallImg = new Image(); fireBallImg.src = '/icons/FireBall.png';
 const ITEM_ICONS = {
     'Wood': 'wood.png',
     'Stone': 'stone.png',
@@ -141,6 +144,7 @@ socket.onmessage = event => {
             zombies = data.zombies || [];
             ogres = data.ogres || [];
             groundItems = data.groundItems || [];
+            projectiles = data.projectiles || [];
             dayNight = data.dayNight || dayNight;
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
@@ -155,6 +159,7 @@ socket.onmessage = event => {
             zombies = data.zombies || zombies;
             ogres = data.ogres || ogres;
             groundItems = data.groundItems || groundItems;
+            projectiles = data.projectiles || projectiles;
             for (const id in data.players) {
                 if (id === myPlayerId) {
                     const serverPlayer = data.players[id];
@@ -163,12 +168,14 @@ socket.onmessage = event => {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
                         clientPlayer.hp = serverPlayer.hp;
+                        clientPlayer.burn = serverPlayer.burn;
                     }
                 } else {
                     if (players[id]) {
                         players[id].targetX = data.players[id].x;
                         players[id].targetY = data.players[id].y;
                         players[id].hp = data.players[id].hp;
+                        players[id].burn = data.players[id].burn;
                     } else {
                         players[id] = data.players[id];
                         initializePlayerForRender(players[id]);
@@ -489,6 +496,15 @@ function drawPlayer(player, isMe) {
         ctx.fillStyle = 'green';
         ctx.fillRect(x - player.size, y - player.size - 10, (player.hp / player.maxHp) * player.size * 2, 6);
     }
+    if (player.burn && player.burn > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(x, y, player.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
 }
 function drawResource(resource) {
     if (resource.harvested) {
@@ -538,6 +554,7 @@ function drawBoar(boar) {
         ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
         ctx.globalCompositeOperation = 'source-atop';
         ctx.fillStyle = boar.color;
+        ctx.globalAlpha = 0.3;
         ctx.beginPath();
         ctx.arc(boar.x, boar.y, size / 2, 0, Math.PI * 2);
         ctx.fill();
@@ -595,12 +612,26 @@ function drawOgre(ogre) {
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 3;
     ctx.stroke();
+    ctx.drawImage(fireStaffImg, ogre.x - 16, ogre.y - 16, 32, 32);
+    if (ogre.burn && ogre.burn > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(ogre.x, ogre.y, ogre.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
     if (ogre.hp < ogre.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(ogre.x - ogre.size, ogre.y - ogre.size - 10, ogre.size * 2, 6);
         ctx.fillStyle = 'green';
         ctx.fillRect(ogre.x - ogre.size, ogre.y - ogre.size - 10, (ogre.hp / ogre.maxHp) * ogre.size * 2, 6);
     }
+}
+
+function drawProjectile(p) {
+    ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
 }
 
 function drawGroundItem(item) {
@@ -658,6 +689,7 @@ function render() {
     groundItems.forEach(drawGroundItem);
     boars.forEach(drawBoar);
     ogres.forEach(drawOgre);
+    projectiles.forEach(drawProjectile);
     zombies.forEach(drawZombie);
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
