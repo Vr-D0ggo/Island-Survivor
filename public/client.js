@@ -133,14 +133,23 @@ function updatePlayerHealthBar() {
 
 function drawShadow(x, y, w, h) {
     const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
-    const progress = (dayNight.cycleTime % cycleDuration) / cycleDuration;
-    const lengthFactor = Math.abs(Math.cos(2 * Math.PI * progress));
-    const scale = 1 + lengthFactor;
-    const offset = (h / 2) * lengthFactor;
+    const cycleTime = dayNight.cycleTime % cycleDuration;
+    const dayProgress = cycleTime < dayNight.DAY_DURATION
+        ? cycleTime / dayNight.DAY_DURATION
+        : 1;
+    const sunAngle = dayProgress * Math.PI; // 0 sunrise, π/2 midday, π sunset
+    const lengthFactor = 1 - Math.sin(sunAngle); // long at sunrise/sunset
+    const dir = -Math.cos(sunAngle); // -1 left at sunrise, 1 right at sunset
+    const baseRadiusX = w / 2;
+    const maxStretch = w * 1.5;
+    const radiusX = baseRadiusX + maxStretch * lengthFactor;
+    const radiusY = (h / 4) * (1 + lengthFactor * 0.5);
+    const centerX = x + dir * radiusX;
+    const centerY = y + h + radiusY;
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.ellipse(x, y + h / 2 + offset, (w / 2) * scale, (h / 4) * scale, 0, 0, Math.PI * 2);
+    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 }
