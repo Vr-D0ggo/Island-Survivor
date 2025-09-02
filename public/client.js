@@ -53,10 +53,10 @@ const ITEM_ICONS = {
     'Apple': 'apple.png',
     'Wooden Axe': 'Axe.png',
     'Wooden Pickaxe': 'Pickaxe.png',
-    'Wooden Sword': 'Sword.png',
+    'Wooden Sword': 'WoodSword.png',
     'Stone Axe': 'Axe.png',
     'Stone Pickaxe': 'Pickaxe.png',
-    'Stone Sword': 'Sword.png',
+    'Stone Sword': 'IronSword.png',
     'Workbench': 'workbench.png',
     'Furnace': 'Oven.png',
     'Bed': 'Bed.png',
@@ -86,11 +86,23 @@ const furnaceCookBtn = document.getElementById('furnace-cook-btn');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 const healthFill = document.getElementById('player-health-fill');
 const manaFill = document.getElementById('player-mana-fill');
+const deathScreen = document.getElementById('death-screen');
+const deathMessage = document.getElementById('death-message');
+const respawnBtn = document.getElementById('respawn-btn');
+const menuBtn = document.getElementById('menu-btn');
+const preSpawnScreen = document.getElementById('pre-spawn-screen');
+const nameInput = document.getElementById('name-input');
+const startBtn = document.getElementById('start-btn');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
 let deathFade = 0;
 let deathFadeDir = 0;
+let preSpawn = true;
+let spectatorTarget = null;
+if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'respawn' })); };
+if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
+if (startBtn) startBtn.onclick = () => { preSpawn = false; preSpawnScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' })); };
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
@@ -143,22 +155,19 @@ function updatePlayerManaBar() {
 function drawShadow(x, y, w, h) {
     const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
     const cycleTime = dayNight.cycleTime % cycleDuration;
-    const dayProgress = cycleTime < dayNight.DAY_DURATION
-        ? cycleTime / dayNight.DAY_DURATION
-        : 1;
-    const sunAngle = dayProgress * Math.PI; // 0 sunrise, π/2 midday, π sunset
-    const lengthFactor = 1 - Math.sin(sunAngle); // long at sunrise/sunset
-    const dir = -Math.cos(sunAngle); // -1 left at sunrise, 1 right at sunset
-    const baseRadiusX = w / 2;
-    const maxStretch = w * 1.5;
-    const radiusX = baseRadiusX + maxStretch * lengthFactor;
-    const radiusY = (h / 4) * (1 + lengthFactor * 0.5);
-    const centerX = x + dir * radiusX;
-    const centerY = y + h + radiusY;
+    let alpha = 0.2;
+    if (cycleTime >= dayNight.DAY_DURATION) {
+        const nightProgress = (cycleTime - dayNight.DAY_DURATION) / dayNight.NIGHT_DURATION; // 0..1
+        if (nightProgress >= 0.25 && nightProgress <= 0.75) alpha = 0;
+        else if (nightProgress < 0.25) alpha *= 1 - (nightProgress / 0.25);
+        else alpha *= (nightProgress - 0.75) / 0.25;
+    }
+    const centerX = x + w / 2;
+    const centerY = y + h;
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
     ctx.beginPath();
-    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+    ctx.ellipse(centerX, centerY, w / 2, h / 2, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 }
@@ -243,7 +252,16 @@ socket.onmessage = event => {
             break;
         }
         case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
-        case 'player-dead': deathFade = 0; deathFadeDir = 1; break;
+        case 'player-dead':
+            deathFade = 0;
+            deathFadeDir = 1;
+            preSpawn = true;
+            if (deathMessage) {
+                const cause = data.cause || 'unknown';
+                deathMessage.textContent = `You died at the hands of ${cause}`;
+            }
+            if (deathScreen) deathScreen.classList.remove('hidden');
+            break;
         case 'chat-message': addChatMessage(data.sender, data.message); break;
     }
 };
@@ -483,6 +501,10 @@ canvas.addEventListener('contextmenu', e => {
     const me = players[myPlayerId];
     if (!me || !me.hotbar) return;
     const selectedItem = me.hotbar[selectedHotbarSlot];
+    if (selectedItem && ['Raw Meat','Cooked Meat','Apple'].includes(selectedItem.item)) {
+        socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
+        return;
+    }
     if (selectedItem && selectedItem.item === 'Fire Staff') {
         socket.send(JSON.stringify({ type: 'cast-staff', targetX: mouseX, targetY: mouseY }));
         return;
@@ -806,10 +828,20 @@ function render() {
 let gameLoopStarted = false;
 function gameLoop() {
     if (players[myPlayerId]) {
-        if (document.activeElement !== chatInput) playerMovement();
+        if (!preSpawn && document.activeElement !== chatInput) playerMovement();
         const me = players[myPlayerId];
-        camera.x = lerp(camera.x, me.x - canvas.width / 2, 0.1);
-        camera.y = lerp(camera.y, me.y - canvas.height / 2, 0.1);
+        if (preSpawn) {
+            if (!spectatorTarget || spectatorTarget.hp <= 0) {
+                const options = [...boars, ...zombies];
+                spectatorTarget = options.length ? options[Math.floor(Math.random() * options.length)] : me;
+            }
+            const target = spectatorTarget || me;
+            camera.x = lerp(camera.x, target.x - canvas.width / 2, 0.1);
+            camera.y = lerp(camera.y, target.y - canvas.height / 2, 0.1);
+        } else {
+            camera.x = lerp(camera.x, me.x - canvas.width / 2, 0.1);
+            camera.y = lerp(camera.y, me.y - canvas.height / 2, 0.1);
+        }
         for (const id in players) {
             if (id !== myPlayerId) {
                 const p = players[id];
