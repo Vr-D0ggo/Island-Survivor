@@ -145,9 +145,15 @@ function spawnBoars(count) {
     }
 }
 
-function createZombie(x, y, ownerId = null) {
+function createZombie(x, y, ownerId = null, minionType = 'attack') {
     const size = 20;
     const hp = 20;
+    // Basic stats differ slightly for different minion roles.
+    const stats = {
+        attack: { speed: 1.2, damage: 2 },
+        healer: { speed: 1, damage: 0 },
+        ranged: { speed: 1, damage: 2 }
+    }[minionType] || { speed: 1.2, damage: 2 };
     return {
         id: nextZombieId++,
         x,
@@ -157,9 +163,9 @@ function createZombie(x, y, ownerId = null) {
         hp,
         maxHp: hp,
         size,
-        baseSpeed: 1.2,
-        speed: 1.2,
-        damage: 2,
+        baseSpeed: stats.speed,
+        speed: stats.speed,
+        damage: stats.damage,
         aggressive: false,
         target: null,
         cooldown: 0,
@@ -169,7 +175,8 @@ function createZombie(x, y, ownerId = null) {
         angle: 0,
         burn: 0,
         slow: 0,
-        ownerId
+        ownerId,
+        minionType
     };
 }
 
@@ -609,11 +616,12 @@ wss.on('connection', ws => {
             }
             case 'spawn-minion': {
                 if (player.class === 'summoner' && player.summonerSkills) {
-                    const owned = zombies.filter(z => z.ownerId === playerId).length;
-                    const max = (player.summonerSkills.attack || 0) + (player.summonerSkills.healer || 0) + (player.summonerSkills.ranged || 0);
-                    if (owned < max) {
+                    const type = data.minionType || 'attack';
+                    const ownedType = zombies.filter(z => z.ownerId === playerId && z.minionType === type).length;
+                    const maxType = player.summonerSkills[type] || 0;
+                    if (ownedType < maxType) {
                         const pos = getSpawnPositionAround(player.x, player.y, 40);
-                        const minion = createZombie(pos.x, pos.y, playerId);
+                        const minion = createZombie(pos.x, pos.y, playerId, type);
                         zombies.push(minion);
                         broadcast({ type: 'zombie-update', zombie: minion });
                     }
@@ -1039,6 +1047,25 @@ function gameLoop() {
         } else if (zombie.burn > 0) {
             zombie.burn--;
         }
+        // Healer minions simply follow their owner and heal them periodically.
+        if (zombie.ownerId && zombie.minionType === 'healer') {
+            const owner = players[zombie.ownerId];
+            if (owner) {
+                const dist = getDistance(zombie, owner);
+                if (dist > 40) moveToward(zombie, owner);
+                else { zombie.vx = 0; zombie.vy = 0; }
+                if (dist < 50 && owner.hp < owner.maxHp && zombie.cooldown <= 0) {
+                    owner.hp = Math.min(owner.maxHp, owner.hp + 1);
+                    const c = [...wss.clients].find(cl => cl.id === zombie.ownerId);
+                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: owner.hp }));
+                    zombie.cooldown = 60;
+                }
+            }
+            zombie.wanderTimer--;
+            zombie.x = Math.max(0, Math.min(WORLD_WIDTH, zombie.x + zombie.vx));
+            zombie.y = Math.max(0, Math.min(WORLD_HEIGHT, zombie.y + zombie.vy));
+            continue;
+        }
         if (!zombie.aggressive) {
             let detected = false;
             const potential = [];
@@ -1076,22 +1103,31 @@ function gameLoop() {
                 else {
                     moveToward(zombie, target);
                     zombie.angle = Math.atan2(zombie.vy, zombie.vx);
-                    if (dist < zombie.size + target.size && zombie.cooldown <= 0) {
-                        if (zombie.target.type !== 'player' || target.invulnerable <= 0) {
-                            target.hp = Math.max(0, target.hp - zombie.damage);
-                            if (zombie.target.type === 'player') {
-                                target.lastHitBy = 'zombie';
-                                const c = [...wss.clients].find(cl => cl.id === zombie.target.id);
-                                if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
-                            } else {
-                                if (target.hp <= 0) {
-                                    ogres = ogres.filter(o => o.id !== target.id);
-                                    groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: target.x, y: target.y });
-                                }
-                                broadcast({ type: 'ogre-update', ogre: target });
-                            }
+                    if (zombie.minionType === 'ranged') {
+                        if (dist < 200 && zombie.cooldown <= 0) {
+                            const angle = Math.atan2(target.y - zombie.y, target.x - zombie.x);
+                            const speed = 4;
+                            projectiles.push({ id: nextProjectileId++, x: zombie.x, y: zombie.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: zombie.ownerId });
+                            zombie.cooldown = 60;
                         }
-                        zombie.cooldown = 60;
+                    } else {
+                        if (dist < zombie.size + target.size && zombie.cooldown <= 0) {
+                            if (zombie.target.type !== 'player' || target.invulnerable <= 0) {
+                                target.hp = Math.max(0, target.hp - zombie.damage);
+                                if (zombie.target.type === 'player') {
+                                    target.lastHitBy = 'zombie';
+                                    const c = [...wss.clients].find(cl => cl.id === zombie.target.id);
+                                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                                } else {
+                                    if (target.hp <= 0) {
+                                        ogres = ogres.filter(o => o.id !== target.id);
+                                        groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: target.x, y: target.y });
+                                    }
+                                    broadcast({ type: 'ogre-update', ogre: target });
+                                }
+                            }
+                            zombie.cooldown = 60;
+                        }
                     }
                 }
             }

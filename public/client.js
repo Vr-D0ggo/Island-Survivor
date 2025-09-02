@@ -132,6 +132,8 @@ let deathFade = 0;
 let deathFadeDir = 0;
 let preSpawn = true;
 let spectatorTarget = null;
+// Current minion type to spawn for summoners.
+let summonerSpawnType = 'attack';
 if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'respawn' })); };
 if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
 if (controlsBtn) controlsBtn.onclick = () => { controlsScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); };
@@ -1078,15 +1080,24 @@ window.addEventListener('keydown', e => {
         }
     }
 });
+// Summoners can cycle the minion type they will spawn.
 window.addEventListener('keydown', e => {
-    if (document.activeElement !== chatInput && e.code === 'Space') {
+    if (document.activeElement !== chatInput && e.code === 'KeyV') {
+        const types = ['attack', 'healer', 'ranged'];
+        const idx = types.indexOf(summonerSpawnType);
+        summonerSpawnType = types[(idx + 1) % types.length];
+    }
+});
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'Space' && !e.repeat) {
         const me = players[myPlayerId];
         if (!me) return;
         if (me.class === 'summoner') {
-            socket.send(JSON.stringify({ type: 'spawn-minion' }));
+            socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
         } else if (me.class === 'mage' && me.mageSkills && me.mageSkills['mage-slow']) {
             socket.send(JSON.stringify({ type: 'cast-slow' }));
         }
+        e.preventDefault();
     }
 });
 window.addEventListener('keydown', e => {
