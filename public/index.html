@@ -50,7 +50,19 @@
     </div>
 
     <div id="notifications"></div>
-    
+
+    <div id="pre-spawn-screen">
+        <h2>Choose your name</h2>
+        <input type="text" id="name-input" maxlength="20">
+        <button id="start-btn">Start</button>
+    </div>
+
+    <div id="death-screen" class="hidden">
+        <div id="death-message"></div>
+        <button id="respawn-btn">Start anew</button>
+        <button id="menu-btn">Go to menu</button>
+    </div>
+
     <script src="client.js"></script>
 </body>
 </html>
