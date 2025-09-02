@@ -491,7 +491,10 @@ wss.on('connection', ws => {
                     player.mana -= 50;
                     const angle = Math.atan2(targetY - player.y, targetX - player.x);
                     const speed = 4;
-                    projectiles.push({ id: nextProjectileId++, x: player.x, y: player.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+                    const spawnDist = player.size + 5;
+                    const sx = player.x + Math.cos(angle) * spawnDist;
+                    const sy = player.y + Math.sin(angle) * spawnDist;
+                    projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId });
                 }
                 break;
             }
@@ -699,7 +702,9 @@ wss.on('connection', ws => {
                 }
                 break;
             }
-            case 'chat': broadcast({ type: 'chat-message', sender: playerId, message: data.message }); break;
+            case 'chat':
+                broadcast({ type: 'chat-message', sender: player.name, message: data.message });
+                break;
         }
     });
     ws.on('close', () => { console.log(`Player ${playerId} disconnected.`); delete players[playerId]; broadcast({ type: 'player-leave', playerId: playerId }); });
@@ -735,6 +740,7 @@ function gameLoop() {
         for (const id in players) {
             const p = players[id];
             if (!p.active) continue;
+            if (proj.owner && proj.owner === id) continue;
             if (getDistance(p, proj) < p.size) {
                 if (!p.invulnerable || p.invulnerable <= 0) {
                     p.hp = Math.max(0, p.hp - 2);
@@ -869,6 +875,13 @@ function gameLoop() {
         }
         boar.x = Math.max(0, Math.min(WORLD_WIDTH, boar.x));
         boar.y = Math.max(0, Math.min(WORLD_HEIGHT, boar.y));
+    }
+    for (const boar of boars) {
+        if (boar.hp <= 0 && !boar.dropProcessed) {
+            groundItems.push({ id: nextItemId++, item: 'Raw Meat', quantity: 1 + Math.floor(Math.random() * 3), x: boar.x, y: boar.y });
+            if (Math.random() < 0.1) groundItems.push({ id: nextItemId++, item: 'Tusk', quantity: 1, x: boar.x, y: boar.y });
+            boar.dropProcessed = true;
+        }
     }
     boars = boars.filter(b => b.hp > 0);
 
@@ -1066,6 +1079,7 @@ function gameLoop() {
             broadcast({ type: 'player-leave', playerId: id });
             const c = [...wss.clients].find(cl => cl.id === id);
             if (c) c.send(JSON.stringify({ type: 'player-dead', cause: p.lastHitBy }));
+            broadcast({ type: 'chat-message', sender: 'Server', message: `${p.name} died` });
         }
         if (p.mana < p.maxMana) {
             const regen = p.moving ? (2 / 60) : (4 / 60);

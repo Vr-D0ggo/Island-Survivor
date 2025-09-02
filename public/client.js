@@ -898,7 +898,7 @@ furnaceCookBtn.addEventListener('click', () => {
     socket.send(JSON.stringify({ type: 'furnace-cook', input: furnaceInput.value, fuel: furnaceFuel.value }));
     furnaceScreen.classList.add('hidden');
 });
-function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
+function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyQ' && document.activeElement !== chatInput) { skillTree.classList.toggle('hidden'); updateLevelUI(); } });
