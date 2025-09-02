@@ -132,10 +132,15 @@ function updatePlayerHealthBar() {
 }
 
 function drawShadow(x, y, w, h) {
+    const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
+    const progress = (dayNight.cycleTime % cycleDuration) / cycleDuration;
+    const lengthFactor = Math.abs(Math.cos(2 * Math.PI * progress));
+    const scale = 1 + lengthFactor;
+    const offset = (h / 2) * lengthFactor;
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.ellipse(x, y + h / 2, w / 2, h / 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y + h / 2 + offset, (w / 2) * scale, (h / 4) * scale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 }
