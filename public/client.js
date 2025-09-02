@@ -93,6 +93,13 @@ const menuBtn = document.getElementById('menu-btn');
 const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
 const startBtn = document.getElementById('start-btn');
+const levelIndicator = document.getElementById('level-indicator');
+const skillTree = document.getElementById('skill-tree');
+const skillPointsElem = document.getElementById('skill-points');
+const rangeNode = document.getElementById('skill-range');
+const mageNode = document.getElementById('skill-mage');
+const knightNode = document.getElementById('skill-knight');
+const summonerNode = document.getElementById('skill-summoner');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
@@ -152,6 +159,26 @@ function updatePlayerManaBar() {
     }
 }
 
+function updateLevelUI() {
+    const me = players[myPlayerId];
+    if (!me) return;
+    if (levelIndicator) levelIndicator.textContent = `Level: ${me.level || 1}`;
+    if (skillPointsElem) skillPointsElem.textContent = `Points: ${me.skillPoints || 0}`;
+    if (rangeNode) {
+        const unlocked = me.skills && me.skills.range;
+        rangeNode.classList.toggle('unlocked', unlocked);
+        rangeNode.classList.toggle('locked', !unlocked);
+    }
+    [mageNode, knightNode, summonerNode].forEach(node => {
+        if (!node) return;
+        const skill = node.dataset.skill;
+        const unlocked = me.class === skill;
+        const available = me.skills && me.skills.range && !me.class;
+        node.classList.toggle('unlocked', unlocked);
+        node.classList.toggle('locked', !(unlocked || available));
+    });
+}
+
 function drawShadow(x, y, w, h) {
     const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
     const cycleTime = dayNight.cycleTime % cycleDuration;
@@ -194,6 +221,7 @@ socket.onmessage = event => {
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
             updatePlayerHealthBar();
             updatePlayerManaBar();
+            updateLevelUI();
             socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot }));
             break;
         case 'game-state':
@@ -214,6 +242,11 @@ socket.onmessage = event => {
                     clientPlayer.burn = serverPlayer.burn;
                     clientPlayer.mana = serverPlayer.mana;
                     clientPlayer.maxMana = serverPlayer.maxMana;
+                    clientPlayer.level = serverPlayer.level;
+                    clientPlayer.skillPoints = serverPlayer.skillPoints;
+                    clientPlayer.skills = serverPlayer.skills || {};
+                    clientPlayer.attackRange = serverPlayer.attackRange || 0;
+                    clientPlayer.class = serverPlayer.class || null;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
@@ -228,6 +261,7 @@ socket.onmessage = event => {
             }
             updatePlayerHealthBar();
             updatePlayerManaBar();
+            updateLevelUI();
             break;
         case 'player-join': if (data.player.id !== myPlayerId) { players[data.player.id] = data.player; initializePlayerForRender(players[data.player.id]); } break;
         case 'player-leave': delete players[data.playerId]; break;
@@ -867,6 +901,7 @@ furnaceCookBtn.addEventListener('click', () => {
 function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
+window.addEventListener('keydown', e => { if (e.code === 'KeyQ' && document.activeElement !== chatInput) { skillTree.classList.toggle('hidden'); updateLevelUI(); } });
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code.startsWith('Digit')) {
         const digit = parseInt(e.code.replace('Digit', '')) - 1;
@@ -889,3 +924,20 @@ window.addEventListener('keydown', e => {
     }
 });
 updateHotbarUI();
+
+if (rangeNode) rangeNode.addEventListener('click', () => {
+    const me = players[myPlayerId];
+    if (me && me.skillPoints > 0 && !(me.skills && me.skills.range)) {
+        socket.send(JSON.stringify({ type: 'unlock-skill', skill: 'range' }));
+    }
+});
+[mageNode, knightNode, summonerNode].forEach(node => {
+    if (!node) return;
+    node.addEventListener('click', () => {
+        const me = players[myPlayerId];
+        const skill = node.dataset.skill;
+        if (me && me.skillPoints > 0 && me.skills && me.skills.range && !me.class) {
+            socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+        }
+    });
+});

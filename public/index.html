@@ -22,6 +22,7 @@
             <div class="slot" id="hotbar-3">4</div>
         </div>
         <div id="chat-container"><ul id="chat-messages"></ul><input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="100"></div>
+        <div id="level-indicator">Level: 1</div>
     </div>
     
     <div id="inventory-screen" class="hidden">
@@ -50,6 +51,18 @@
     </div>
 
     <div id="notifications"></div>
+
+    <div id="skill-tree" class="hidden">
+        <div class="tree-panel">
+            <div id="skill-points">Points: 0</div>
+            <div id="skill-range" class="skill-node locked">Longer Range</div>
+            <div class="class-row">
+                <div id="skill-mage" class="skill-node locked" data-skill="mage">Mage</div>
+                <div id="skill-knight" class="skill-node locked" data-skill="knight">Knight</div>
+                <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
+            </div>
+        </div>
+    </div>
 
     <div id="pre-spawn-screen">
         <h2>Choose your name</h2>

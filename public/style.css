@@ -198,6 +198,51 @@ canvas {
     }
 }
 
+#level-indicator {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 5px 10px;
+    border-radius: 5px;
+    pointer-events: none;
+}
+
+#skill-tree {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: auto;
+}
+#skill-tree.hidden { display: none; }
+#skill-tree .tree-panel {
+    background-image: url('icons/NightSky.png');
+    background-size: cover;
+    padding: 20px;
+    border: 2px solid #888;
+    border-radius: 10px;
+    color: white;
+    text-align: center;
+}
+.skill-node {
+    background: #444;
+    border: 2px solid #888;
+    border-radius: 5px;
+    padding: 5px 10px;
+    margin: 10px auto;
+    width: 150px;
+    cursor: pointer;
+}
+.skill-node.locked { opacity: 0.5; cursor: default; }
+.skill-node.unlocked { border-color: #fff; }
+.class-row { display: flex; justify-content: space-between; gap: 10px; }
+
 /* Notifications */
 #notifications {
     position: absolute;
