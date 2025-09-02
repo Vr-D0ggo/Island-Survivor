@@ -212,6 +212,9 @@ function getDistance(obj1, obj2) { return Math.hypot(obj1.x - obj2.x, obj1.y - o
 function countItems(player, itemName) { let t = 0; [...player.inventory, ...player.hotbar].forEach(s => { if (s && s.item === itemName) t += s.quantity; }); return t; }
 function consumeItems(player, itemName, amount) { let r = amount; const c = (s) => { if (s && s.item === itemName && r > 0) { const t = Math.min(r, s.quantity); s.quantity -= t; r -= t; if (s.quantity <= 0) return null; } return s; }; player.inventory = player.inventory.map(c); player.hotbar = player.hotbar.map(c); }
 function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = [...wss.clients].find(c => c.id === playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
+function sendLevelUpdate(ws, player) {
+    if (ws) ws.send(JSON.stringify({ type: 'level-update', level: player.level, skillPoints: player.skillPoints }));
+}
 
 function getDamage(item, target) {
     if (!item) return 1;
@@ -334,8 +337,7 @@ function isInShadow(entity) {
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
     ws.id = playerId;
-    const spawnX = WORLD_WIDTH / 2;
-    const spawnY = WORLD_HEIGHT / 2;
+    const { x: spawnX, y: spawnY } = getFreePosition();
     const newPlayer = {
         id: playerId,
         name: 'Survivor',
@@ -399,8 +401,9 @@ wss.on('connection', ws => {
             case 'respawn':
                 player.active = true;
                 player.hp = player.maxHp;
-                player.x = player.spawnX;
-                player.y = player.spawnY;
+                const { x: rx, y: ry } = getSpawnPositionAround(player.spawnX, player.spawnY, 50);
+                player.x = rx;
+                player.y = ry;
                 player.invulnerable = 120;
                 broadcast({ type: 'player-join', player });
                 ws.send(JSON.stringify({ type: 'player-hit', hp: player.hp }));
@@ -443,6 +446,7 @@ wss.on('connection', ws => {
                         }
                         addItemToPlayer(playerId, item, quantity);
                         player.level = (player.level || 1) + 1;
+                        sendLevelUpdate(ws, player);
                         setTimeout(() => {
                             resource.hp = resource.maxHp;
                             resource.harvested = false;
@@ -470,6 +474,7 @@ wss.on('connection', ws => {
                         if (Math.random() < 0.1) addItemToPlayer(playerId, 'Tusk', 1);
                         boars = boars.filter(b => b.id !== boar.id);
                         player.level = (player.level || 1) + 1;
+                        sendLevelUpdate(ws, player);
                     } else {
                         if (boar.behavior !== 'passive') {
                             if (boar.behavior !== 'half' || boar.hp <= boar.maxHp / 2) {
@@ -494,6 +499,7 @@ wss.on('connection', ws => {
                         zombies = zombies.filter(z => z.id !== zombie.id);
                         player.level = (player.level || 1) + 1;
                         player.skillPoints = (player.skillPoints || 0) + 1;
+                        sendLevelUpdate(ws, player);
                     } else {
                         zombie.aggressive = true;
                         zombie.target = { type: 'player', id: playerId };
@@ -515,6 +521,7 @@ wss.on('connection', ws => {
                         ogres = ogres.filter(o => o.id !== ogre.id);
                         groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: ogre.x, y: ogre.y });
                         player.level = (player.level || 1) + 1;
+                        sendLevelUpdate(ws, player);
                     }
                     broadcast({ type: 'ogre-update', ogre });
                 }
@@ -746,6 +753,7 @@ wss.on('connection', ws => {
                     ws.send(JSON.stringify({ type: 'player-hit', hp: player.hp }));
                 }
                 player.level = (player.level || 1) + 1;
+                sendLevelUpdate(ws, player);
                 break;
             }
             case 'furnace-cook': {
@@ -833,9 +841,16 @@ function gameLoop() {
                 if (!p.invulnerable || p.invulnerable <= 0) {
                     p.hp = Math.max(0, p.hp - 2);
                     p.burn = 120;
-                    p.lastHitBy = 'ogre';
+                    p.lastHitBy = proj.owner || 'ogre';
                     const c = [...wss.clients].find(cl => cl.id === id);
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                    if (p.hp <= 0 && proj.owner && players[proj.owner]) {
+                        const killer = players[proj.owner];
+                        killer.level = (killer.level || 1) + 1;
+                        killer.skillPoints = (killer.skillPoints || 0) + 1;
+                        const kc = [...wss.clients].find(cl => cl.id === proj.owner);
+                        sendLevelUpdate(kc, killer);
+                    }
                 }
                 hit = true;
                 break;
@@ -1201,8 +1216,11 @@ function gameLoop() {
             p.inventory = Array(INVENTORY_SLOTS).fill(null);
             p.hotbar = Array(4).fill(null);
             p.hp = p.maxHp;
-            p.x = p.spawnX !== undefined ? p.spawnX : WORLD_WIDTH / 2;
-            p.y = p.spawnY !== undefined ? p.spawnY : WORLD_HEIGHT / 2;
+            const safe = getSpawnPositionAround(p.spawnX !== undefined ? p.spawnX : WORLD_WIDTH / 2,
+                                               p.spawnY !== undefined ? p.spawnY : WORLD_HEIGHT / 2,
+                                               50);
+            p.x = safe.x;
+            p.y = safe.y;
             p.invulnerable = 120;
             p.active = false;
             broadcast({ type: 'player-leave', playerId: id });
