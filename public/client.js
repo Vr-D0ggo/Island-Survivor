@@ -329,6 +329,15 @@ socket.onmessage = event => {
         case 'inventory-update': const me = players[myPlayerId]; if (me) { me.inventory = data.inventory; me.hotbar = data.hotbar; if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } if (!furnaceScreen.classList.contains('hidden')) { updateFurnaceUI(); } updateHotbarUI(); } break;
         case 'item-pickup-notif': createFloatingText(`+${data.amount} ${data.item}`, players[myPlayerId].x, players[myPlayerId].y); break;
         case 'notification': showNotification(data.message); break;
+        case 'level-update': {
+            const mePlayer = players[myPlayerId];
+            if (mePlayer) {
+                mePlayer.level = data.level;
+                mePlayer.skillPoints = data.skillPoints;
+                updateLevelUI();
+            }
+            break;
+        }
         case 'boar-update': {
             const idx = boars.findIndex(b => b.id === data.boar.id);
             if (idx !== -1) boars[idx] = data.boar; else boars.push(data.boar);
@@ -890,7 +899,16 @@ function drawStructure(structure) {
     } else if (structure.type === 'bed') {
         ctx.drawImage(bedImg, structure.x, structure.y, size, size);
     } else if (structure.type === 'torch') {
-        ctx.drawImage(fireBallImg, structure.x + size / 4, structure.y + size / 4, size / 2, size / 2);
+        const cx = structure.x + size / 2;
+        const cy = structure.y + size / 2;
+        const radius = size / 4;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        grad.addColorStop(0, '#ffff99');
+        grad.addColorStop(1, '#ff9900');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
     }
 }
 function render() {
@@ -1033,6 +1051,14 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
+    }
+});
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'KeyX') {
+        const me = players[myPlayerId];
+        if (me && me.hotbar && me.hotbar[selectedHotbarSlot]) {
+            socket.send(JSON.stringify({ type: 'drop-item', fromType: 'hotbar', index: selectedHotbarSlot }));
+        }
     }
 });
 window.addEventListener('keydown', e => {
