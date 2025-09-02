@@ -40,6 +40,7 @@ const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
+const bedImg = new Image(); bedImg.src = '/icons/Bed.png';
 const fireStaffImg = new Image(); fireStaffImg.src = '/icons/FireStaff.png';
 const fireBallImg = new Image(); fireBallImg.src = '/icons/FireBall.png';
 const ITEM_ICONS = {
@@ -57,7 +58,8 @@ const ITEM_ICONS = {
     'Stone Pickaxe': 'Pickaxe.png',
     'Stone Sword': 'Sword.png',
     'Workbench': 'workbench.png',
-    'Furnace': 'Oven.png'
+    'Furnace': 'Oven.png',
+    'Bed': 'Bed.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -68,7 +70,8 @@ const RECIPES = {
     'Stone Axe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Axe'] },
     'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Pickaxe'] },
     'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] },
-    'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] }
+    'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] },
+    'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] }
 };
 
 // --- Input & UI State ---
@@ -429,16 +432,22 @@ canvas.addEventListener('contextmenu', e => {
         const gridY = Math.floor(mouseY / GRID_CELL_SIZE);
         if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
     }
-    if (key && structures[key] && structures[key].type === 'furnace') {
+    if (key && structures[key]) {
+        const s = structures[key];
         const me = players[myPlayerId];
         if (me) {
-            const s = structures[key];
             const cx = s.x + s.size / 2;
             const cy = s.y + s.size / 2;
             if (Math.hypot(me.x - cx, me.y - cy) < me.size + s.size) {
-                furnaceScreen.classList.remove('hidden');
-                updateFurnaceUI();
-                return;
+                if (s.type === 'furnace') {
+                    furnaceScreen.classList.remove('hidden');
+                    updateFurnaceUI();
+                    return;
+                } else if (s.type === 'bed') {
+                    socket.send(JSON.stringify({ type: 'sleep-bed', key }));
+                    showNotification('Respawn point set!');
+                    return;
+                }
             }
         }
     }
@@ -446,7 +455,7 @@ canvas.addEventListener('contextmenu', e => {
     if (!me || !me.hotbar) return;
     const selectedItem = me.hotbar[selectedHotbarSlot];
     if (!selectedItem) return;
-    const snap = selectedItem.item === 'Workbench' ? GRID_CELL_SIZE : BLOCK_SIZE;
+    const snap = ['Workbench','Furnace','Bed'].includes(selectedItem.item) ? GRID_CELL_SIZE : BLOCK_SIZE;
     const targetX = Math.floor(mouseX / snap) * snap;
     const targetY = Math.floor(mouseY / snap) * snap;
     socket.send(JSON.stringify({ type: 'place-item', item: selectedItem.item, x: targetX, y: targetY, hotbarIndex: selectedHotbarSlot }));
@@ -682,6 +691,8 @@ function drawStructure(structure) {
         ctx.drawImage(workbenchImg, structure.x, structure.y, size, size);
     } else if (structure.type === 'furnace') {
         ctx.drawImage(ovenImg, structure.x, structure.y, size, size);
+    } else if (structure.type === 'bed') {
+        ctx.drawImage(bedImg, structure.x, structure.y, size, size);
     }
 }
 function render() {
