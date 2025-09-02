@@ -40,6 +40,7 @@ const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
+const bedImg = new Image(); bedImg.src = '/icons/Bed.png';
 const fireStaffImg = new Image(); fireStaffImg.src = '/icons/FireStaff.png';
 const fireBallImg = new Image(); fireBallImg.src = '/icons/FireBall.png';
 const ITEM_ICONS = {
@@ -57,7 +58,9 @@ const ITEM_ICONS = {
     'Stone Pickaxe': 'Pickaxe.png',
     'Stone Sword': 'Sword.png',
     'Workbench': 'workbench.png',
-    'Furnace': 'Oven.png'
+    'Furnace': 'Oven.png',
+    'Bed': 'Bed.png',
+    'Fire Staff': 'FireStaff.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -68,7 +71,8 @@ const RECIPES = {
     'Stone Axe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Axe'] },
     'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Pickaxe'] },
     'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] },
-    'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] }
+    'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] },
+    'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] }
 };
 
 // --- Input & UI State ---
@@ -81,9 +85,10 @@ const furnaceFuel = document.getElementById('furnace-fuel');
 const furnaceCookBtn = document.getElementById('furnace-cook-btn');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 const healthFill = document.getElementById('player-health-fill');
+const manaFill = document.getElementById('player-mana-fill');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
-let dragSrcIndex = null;
+let dragData = null; let dropHandled = false;
 let deathFade = 0;
 let deathFadeDir = 0;
 canvas.addEventListener('mousemove', e => {
@@ -128,6 +133,36 @@ function updatePlayerHealthBar() {
     }
 }
 
+function updatePlayerManaBar() {
+    const me = players[myPlayerId];
+    if (me && manaFill) {
+        manaFill.style.height = `${(me.mana / me.maxMana) * 100}%`;
+    }
+}
+
+function drawShadow(x, y, w, h) {
+    const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
+    const cycleTime = dayNight.cycleTime % cycleDuration;
+    const dayProgress = cycleTime < dayNight.DAY_DURATION
+        ? cycleTime / dayNight.DAY_DURATION
+        : 1;
+    const sunAngle = dayProgress * Math.PI; // 0 sunrise, π/2 midday, π sunset
+    const lengthFactor = 1 - Math.sin(sunAngle); // long at sunrise/sunset
+    const dir = -Math.cos(sunAngle); // -1 left at sunrise, 1 right at sunset
+    const baseRadiusX = w / 2;
+    const maxStretch = w * 1.5;
+    const radiusX = baseRadiusX + maxStretch * lengthFactor;
+    const radiusY = (h / 4) * (1 + lengthFactor * 0.5);
+    const centerX = x + dir * radiusX;
+    const centerY = y + h + radiusY;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
 // --- WebSocket Message Handling ---
 socket.onmessage = event => {
     const data = JSON.parse(event.data);
@@ -149,6 +184,7 @@ socket.onmessage = event => {
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
             updatePlayerHealthBar();
+            updatePlayerManaBar();
             socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot }));
             break;
         case 'game-state':
@@ -161,28 +197,28 @@ socket.onmessage = event => {
             groundItems = data.groundItems || groundItems;
             projectiles = data.projectiles || projectiles;
             for (const id in data.players) {
-                if (id === myPlayerId) {
+                if (players[id]) {
                     const serverPlayer = data.players[id];
                     const clientPlayer = players[id];
-                    if (clientPlayer) {
+                    clientPlayer.heldIndex = serverPlayer.heldIndex;
+                    clientPlayer.hp = serverPlayer.hp;
+                    clientPlayer.burn = serverPlayer.burn;
+                    clientPlayer.mana = serverPlayer.mana;
+                    clientPlayer.maxMana = serverPlayer.maxMana;
+                    if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
-                        clientPlayer.hp = serverPlayer.hp;
-                        clientPlayer.burn = serverPlayer.burn;
+                    } else {
+                        clientPlayer.targetX = serverPlayer.x;
+                        clientPlayer.targetY = serverPlayer.y;
                     }
                 } else {
-                    if (players[id]) {
-                        players[id].targetX = data.players[id].x;
-                        players[id].targetY = data.players[id].y;
-                        players[id].hp = data.players[id].hp;
-                        players[id].burn = data.players[id].burn;
-                    } else {
-                        players[id] = data.players[id];
-                        initializePlayerForRender(players[id]);
-                    }
+                    players[id] = data.players[id];
+                    initializePlayerForRender(players[id]);
                 }
             }
             updatePlayerHealthBar();
+            updatePlayerManaBar();
             break;
         case 'player-join': if (data.player.id !== myPlayerId) { players[data.player.id] = data.player; initializePlayerForRender(players[data.player.id]); } break;
         case 'player-leave': delete players[data.playerId]; break;
@@ -253,17 +289,25 @@ function updateInventoryUI(){
         slot.className = 'slot';
         slot.dataset.index = i;
         slot.draggable = !!item;
-        slot.addEventListener('dragstart', () => { dragSrcIndex = i; });
+        slot.addEventListener('dragstart', () => { dragData = { type: 'inventory', index: i }; dropHandled = false; });
         slot.addEventListener('dragover', e => e.preventDefault());
         slot.addEventListener('drop', e => {
-            e.preventDefault();
+            e.preventDefault(); dropHandled = true;
             const dest = parseInt(e.currentTarget.dataset.index, 10);
-            if (dragSrcIndex !== null && dest !== dragSrcIndex) {
-                socket.send(JSON.stringify({ type: 'swap-inventory', from: dragSrcIndex, to: dest }));
+            if (!dragData) return;
+            if (dragData.type === 'inventory' && dest !== dragData.index) {
+                socket.send(JSON.stringify({ type: 'swap-inventory', from: dragData.index, to: dest }));
+            } else if (dragData.type === 'hotbar') {
+                socket.send(JSON.stringify({ type: 'move-item', fromType: 'hotbar', fromIndex: dragData.index, toType: 'inventory', toIndex: dest }));
             }
-            dragSrcIndex = null;
+            dragData = null;
         });
-        slot.addEventListener('dragend', () => { dragSrcIndex = null; });
+        slot.addEventListener('dragend', () => {
+            if (!dropHandled && dragData) {
+                socket.send(JSON.stringify({ type: 'drop-item', fromType: dragData.type, index: dragData.index }));
+            }
+            dragData = null;
+        });
         if(item){
             const iconName = ITEM_ICONS[item.item];
             if(iconName){
@@ -309,6 +353,29 @@ function updateHotbarUI() {
     hotbarSlots.forEach((slot, i) => {
         slot.classList.toggle('selected', i === selectedHotbarSlot);
         const item = me.hotbar[i];
+        if (!slot.dataset.bound) {
+            slot.addEventListener('dragover', e => e.preventDefault());
+            slot.addEventListener('dragstart', () => { if (me.hotbar[i]) { dragData = { type: 'hotbar', index: i }; dropHandled = false; }});
+            slot.addEventListener('drop', e => {
+                e.preventDefault(); dropHandled = true;
+                const dest = i;
+                if (!dragData) return;
+                if (dragData.type === 'inventory') {
+                    socket.send(JSON.stringify({ type: 'move-item', fromType: 'inventory', fromIndex: dragData.index, toType: 'hotbar', toIndex: dest }));
+                } else if (dragData.type === 'hotbar' && dest !== dragData.index) {
+                    socket.send(JSON.stringify({ type: 'move-item', fromType: 'hotbar', fromIndex: dragData.index, toType: 'hotbar', toIndex: dest }));
+                }
+                dragData = null;
+            });
+            slot.addEventListener('dragend', () => {
+                if (!dropHandled && dragData) {
+                    socket.send(JSON.stringify({ type: 'drop-item', fromType: dragData.type, index: dragData.index }));
+                }
+                dragData = null;
+            });
+            slot.dataset.bound = '1';
+        }
+        slot.draggable = !!item;
         if (item) {
             const iconName = ITEM_ICONS[item.item];
             if (iconName) {
@@ -413,6 +480,13 @@ canvas.addEventListener('contextmenu', e => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
+    const me = players[myPlayerId];
+    if (!me || !me.hotbar) return;
+    const selectedItem = me.hotbar[selectedHotbarSlot];
+    if (selectedItem && selectedItem.item === 'Fire Staff') {
+        socket.send(JSON.stringify({ type: 'cast-staff', targetX: mouseX, targetY: mouseY }));
+        return;
+    }
     let key = null;
     const blockX = Math.floor(mouseX / BLOCK_SIZE);
     const blockY = Math.floor(mouseY / BLOCK_SIZE);
@@ -423,24 +497,26 @@ canvas.addEventListener('contextmenu', e => {
         const gridY = Math.floor(mouseY / GRID_CELL_SIZE);
         if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
     }
-    if (key && structures[key] && structures[key].type === 'furnace') {
-        const me = players[myPlayerId];
+    if (key && structures[key]) {
+        const s = structures[key];
         if (me) {
-            const s = structures[key];
             const cx = s.x + s.size / 2;
             const cy = s.y + s.size / 2;
             if (Math.hypot(me.x - cx, me.y - cy) < me.size + s.size) {
-                furnaceScreen.classList.remove('hidden');
-                updateFurnaceUI();
-                return;
+                if (s.type === 'furnace') {
+                    furnaceScreen.classList.remove('hidden');
+                    updateFurnaceUI();
+                    return;
+                } else if (s.type === 'bed') {
+                    socket.send(JSON.stringify({ type: 'sleep-bed', key }));
+                    showNotification('Respawn point set!');
+                    return;
+                }
             }
         }
     }
-    const me = players[myPlayerId];
-    if (!me || !me.hotbar) return;
-    const selectedItem = me.hotbar[selectedHotbarSlot];
     if (!selectedItem) return;
-    const snap = selectedItem.item === 'Workbench' ? GRID_CELL_SIZE : BLOCK_SIZE;
+    const snap = ['Workbench','Furnace','Bed'].includes(selectedItem.item) ? GRID_CELL_SIZE : BLOCK_SIZE;
     const targetX = Math.floor(mouseX / snap) * snap;
     const targetY = Math.floor(mouseY / snap) * snap;
     socket.send(JSON.stringify({ type: 'place-item', item: selectedItem.item, x: targetX, y: targetY, hotbarIndex: selectedHotbarSlot }));
@@ -451,6 +527,7 @@ function drawPlayer(player, isMe) {
     if (!player || player.x === undefined) return;
     const x = isMe ? player.x : player.renderX;
     const y = isMe ? player.y : player.renderY;
+    drawShadow(x, y, player.size * 2, player.size);
     ctx.beginPath();
     ctx.arc(x, y, player.size, 0, Math.PI * 2);
     ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)';
@@ -509,6 +586,7 @@ function drawPlayer(player, isMe) {
 function drawResource(resource) {
     if (resource.harvested) {
         if (resource.type === 'tree') {
+            drawShadow(resource.x, resource.y, resource.size / 2, resource.size / 4);
             ctx.fillStyle = '#654321';
             ctx.beginPath();
             ctx.arc(resource.x, resource.y, resource.size / 4, 0, Math.PI * 2);
@@ -518,6 +596,7 @@ function drawResource(resource) {
     }
     if (resource.type === 'tree') {
         const trunkSize = resource.size / 4;
+        drawShadow(resource.x, resource.y, resource.size, resource.size / 2);
         ctx.drawImage(treeTrunkImg, resource.x - trunkSize / 2, resource.y - trunkSize / 2, trunkSize, trunkSize);
         if (resource.phase === 1) {
             ctx.drawImage(treeTopImg, resource.x - resource.size / 2, resource.y - resource.size / 2, resource.size, resource.size);
@@ -534,6 +613,7 @@ function drawResource(resource) {
             ctx.restore();
         }
     } else if (resource.type === 'rock') {
+        drawShadow(resource.x, resource.y, resource.size, resource.size / 2);
         ctx.fillStyle = '#808080';
         ctx.beginPath();
         ctx.arc(resource.x, resource.y, resource.size / 2, 0, Math.PI * 2);
@@ -549,6 +629,7 @@ function drawResource(resource) {
 }
 function drawBoar(boar) {
     const size = boar.size * 2;
+    drawShadow(boar.x, boar.y, size, size / 2);
     if (boar.color) {
         ctx.save();
         ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
@@ -574,6 +655,7 @@ function drawZombie(zombie) {
     const x = zombie.x;
     const y = zombie.y;
     const angle = zombie.angle || 0;
+    drawShadow(x, y, zombie.size * 2, zombie.size);
     ctx.beginPath();
     ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
     ctx.fillStyle = '#6b8e23';
@@ -596,6 +678,15 @@ function drawZombie(zombie) {
     ctx.arc(x + nx, y + ny, zombie.size * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
     ctx.fill();
+    if (zombie.burn && zombie.burn > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
     if (zombie.hp < zombie.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(x - zombie.size, y - zombie.size - 10, zombie.size * 2, 6);
@@ -605,6 +696,7 @@ function drawZombie(zombie) {
 }
 
 function drawOgre(ogre) {
+    drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
     ctx.beginPath();
     ctx.arc(ogre.x, ogre.y, ogre.size, 0, Math.PI * 2);
     ctx.fillStyle = '#800080';
@@ -631,6 +723,7 @@ function drawOgre(ogre) {
 }
 
 function drawProjectile(p) {
+    drawShadow(p.x, p.y, 16, 8);
     ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
 }
 
@@ -639,10 +732,12 @@ function drawGroundItem(item) {
     if (!icon) return;
     if (!itemImages[icon]) { const img = new Image(); img.src = `/icons/${icon}`; itemImages[icon] = img; }
     const img = itemImages[icon];
+    drawShadow(item.x, item.y, 32, 16);
     ctx.drawImage(img, item.x - 16, item.y - 16, 32, 32);
 }
 function drawStructure(structure) {
     const size = structure.size || (structure.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
+    drawShadow(structure.x + size / 2, structure.y + size / 2, size, size / 2);
     if (structure.type === 'wood_wall') {
         ctx.fillStyle = '#8B4513';
         ctx.fillRect(structure.x, structure.y, size, size);
@@ -657,6 +752,8 @@ function drawStructure(structure) {
         ctx.drawImage(workbenchImg, structure.x, structure.y, size, size);
     } else if (structure.type === 'furnace') {
         ctx.drawImage(ovenImg, structure.x, structure.y, size, size);
+    } else if (structure.type === 'bed') {
+        ctx.drawImage(bedImg, structure.x, structure.y, size, size);
     }
 }
 function render() {
@@ -738,7 +835,17 @@ furnaceCookBtn.addEventListener('click', () => {
 function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
-window.addEventListener('keydown', e => { if (document.activeElement !== chatInput && e.code.startsWith('Digit')) { const digit = parseInt(e.code.replace('Digit', '')) - 1; if (digit >= 0 && digit < 4) { selectedHotbarSlot = digit; updateHotbarUI(); socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot })); } }});
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code.startsWith('Digit')) {
+        const digit = parseInt(e.code.replace('Digit', '')) - 1;
+        if (digit >= 0 && digit < 4) {
+            selectedHotbarSlot = digit;
+            if (players[myPlayerId]) players[myPlayerId].heldIndex = selectedHotbarSlot;
+            updateHotbarUI();
+            socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot }));
+        }
+    }
+});
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
