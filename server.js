@@ -131,7 +131,7 @@ function spawnBoars(count) {
     }
 }
 
-function createZombie(x, y) {
+function createZombie(x, y, ownerId = null) {
     const size = 20;
     const hp = 20;
     return {
@@ -152,7 +152,8 @@ function createZombie(x, y) {
         vy: 0,
         wanderTimer: 0,
         angle: 0,
-        burn: 0
+        burn: 0,
+        ownerId
     };
 }
 
@@ -311,7 +312,7 @@ wss.on('connection', ws => {
     ws.id = playerId;
     const spawnX = WORLD_WIDTH / 2;
     const spawnY = WORLD_HEIGHT / 2;
-    const newPlayer = { id: playerId, x: spawnX, y: spawnY, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0, lastHitBy: null, burn: 0, mana: 100, maxMana: 100, moving: false, spawnX, spawnY };
+    const newPlayer = { id: playerId, name: 'Survivor', x: spawnX, y: spawnY, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0, lastHitBy: null, burn: 0, mana: 100, maxMana: 100, moving: false, spawnX, spawnY, invulnerable: 0 };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
@@ -337,6 +338,9 @@ wss.on('connection', ws => {
             }
             case 'held-item':
                 if (Number.isInteger(data.index)) player.heldIndex = data.index;
+                break;
+            case 'set-name':
+                if (typeof data.name === 'string') player.name = data.name.slice(0, 20);
                 break;
             case 'hit-resource': {
                 const resource = resources.find(r => r.id === data.resourceId);
@@ -657,10 +661,13 @@ function gameLoop() {
         for (const id in players) {
             const p = players[id];
             if (getDistance(p, proj) < p.size) {
-                p.hp = Math.max(0, p.hp - 2);
-                p.burn = 120;
-                const c = [...wss.clients].find(cl => cl.id === id);
-                if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                if (!p.invulnerable || p.invulnerable <= 0) {
+                    p.hp = Math.max(0, p.hp - 2);
+                    p.burn = 120;
+                    p.lastHitBy = 'ogre';
+                    const c = [...wss.clients].find(cl => cl.id === id);
+                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                }
                 hit = true;
                 break;
             }
@@ -744,16 +751,18 @@ function gameLoop() {
                 else {
                     moveToward(boar, target);
                     if (dist < boar.size + target.size && boar.cooldown <= 0) {
-                        target.hp = Math.max(0, target.hp - boar.damage);
-                        if (boar.target.type === 'player') {
-                            target.lastHitBy = 'boar';
-                            const c = [...wss.clients].find(cl => cl.id === boar.target.id);
-                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
-                        } else {
-                            if (target.hp <= 0) ogres = ogres.filter(o => o.id !== target.id);
-                            broadcast({ type: 'ogre-update', ogre: target });
+                        if (boar.target.type !== 'player' || target.invulnerable <= 0) {
+                            target.hp = Math.max(0, target.hp - boar.damage);
+                            if (boar.target.type === 'player') {
+                                target.lastHitBy = 'boar';
+                                const c = [...wss.clients].find(cl => cl.id === boar.target.id);
+                                if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                            } else {
+                                if (target.hp <= 0) ogres = ogres.filter(o => o.id !== target.id);
+                                broadcast({ type: 'ogre-update', ogre: target });
+                            }
                         }
-                        boar.cooldown = 60;
+                    boar.cooldown = 60;
                     }
                 }
             }
@@ -828,14 +837,16 @@ function gameLoop() {
                     moveToward(zombie, target);
                     zombie.angle = Math.atan2(zombie.vy, zombie.vx);
                     if (dist < zombie.size + target.size && zombie.cooldown <= 0) {
-                        target.hp = Math.max(0, target.hp - zombie.damage);
-                        if (zombie.target.type === 'player') {
-                            target.lastHitBy = 'zombie';
-                            const c = [...wss.clients].find(cl => cl.id === zombie.target.id);
-                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
-                        } else {
-                            if (target.hp <= 0) ogres = ogres.filter(o => o.id !== target.id);
-                            broadcast({ type: 'ogre-update', ogre: target });
+                        if (zombie.target.type !== 'player' || target.invulnerable <= 0) {
+                            target.hp = Math.max(0, target.hp - zombie.damage);
+                            if (zombie.target.type === 'player') {
+                                target.lastHitBy = 'zombie';
+                                const c = [...wss.clients].find(cl => cl.id === zombie.target.id);
+                                if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                            } else {
+                                if (target.hp <= 0) ogres = ogres.filter(o => o.id !== target.id);
+                                broadcast({ type: 'ogre-update', ogre: target });
+                            }
                         }
                         zombie.cooldown = 60;
                     }
@@ -898,22 +909,24 @@ function gameLoop() {
                 ogre.fireCooldown = 90;
             }
             if (dist < ogre.size + targetData.entity.size + 10 && ogre.cooldown <= 0) {
-                const dmg = Math.floor((targetData.entity.maxHp || 10) / 2);
-                targetData.entity.hp = Math.max(0, targetData.entity.hp - dmg);
-                if (targetData.type === 'player') {
-                    targetData.entity.lastHitBy = 'ogre';
-                    const c = [...wss.clients].find(cl => cl.id === targetData.id);
-                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetData.entity.hp }));
-                } else if (targetData.type === 'boar') {
-                    targetData.entity.aggressive = true;
-                    targetData.entity.target = { type: 'ogre', id: ogre.id };
-                    if (targetData.entity.hp <= 0) boars = boars.filter(b => b.id !== targetData.id);
-                    broadcast({ type: 'boar-update', boar: targetData.entity });
-                } else if (targetData.type === 'zombie') {
-                    targetData.entity.aggressive = true;
-                    targetData.entity.target = { type: 'ogre', id: ogre.id };
-                    if (targetData.entity.hp <= 0) zombies = zombies.filter(z => z.id !== targetData.id);
-                    broadcast({ type: 'zombie-update', zombie: targetData.entity });
+                if (targetData.type !== 'player' || targetData.entity.invulnerable <= 0) {
+                    const dmg = Math.floor((targetData.entity.maxHp || 10) / 2);
+                    targetData.entity.hp = Math.max(0, targetData.entity.hp - dmg);
+                    if (targetData.type === 'player') {
+                        targetData.entity.lastHitBy = 'ogre';
+                        const c = [...wss.clients].find(cl => cl.id === targetData.id);
+                        if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetData.entity.hp }));
+                    } else if (targetData.type === 'boar') {
+                        targetData.entity.aggressive = true;
+                        targetData.entity.target = { type: 'ogre', id: ogre.id };
+                        if (targetData.entity.hp <= 0) boars = boars.filter(b => b.id !== targetData.id);
+                        broadcast({ type: 'boar-update', boar: targetData.entity });
+                    } else if (targetData.type === 'zombie') {
+                        targetData.entity.aggressive = true;
+                        targetData.entity.target = { type: 'ogre', id: ogre.id };
+                        if (targetData.entity.hp <= 0) zombies = zombies.filter(z => z.id !== targetData.id);
+                        broadcast({ type: 'zombie-update', zombie: targetData.entity });
+                    }
                 }
                 ogre.cooldown = 90;
             }
@@ -934,14 +947,18 @@ function gameLoop() {
         const p = players[id];
         if (p.burn && p.burn > 0) {
             p.burn--;
-            if (p.burn % 30 === 0) {
+            if (p.burn % 30 === 0 && (!p.invulnerable || p.invulnerable <= 0)) {
                 p.hp = Math.max(0, p.hp - 1);
                 const c = [...wss.clients].find(cl => cl.id === id);
                 if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
             }
         }
+        if (p.invulnerable && p.invulnerable > 0) p.invulnerable--;
         if (p.hp <= 0) {
-            if (p.lastHitBy === 'zombie') zombies.push(createZombie(p.x, p.y));
+            if (p.lastHitBy === 'zombie') {
+                const owned = zombies.filter(z => z.ownerId === id).length;
+                if (owned < 3) zombies.push(createZombie(p.x, p.y, id));
+            }
             for (const slot of [...p.inventory, ...p.hotbar]) {
                 if (slot) groundItems.push({ id: nextItemId++, item: slot.item, quantity: slot.quantity, x: p.x, y: p.y });
             }
@@ -950,8 +967,9 @@ function gameLoop() {
             p.hp = p.maxHp;
             p.x = p.spawnX !== undefined ? p.spawnX : WORLD_WIDTH / 2;
             p.y = p.spawnY !== undefined ? p.spawnY : WORLD_HEIGHT / 2;
+            p.invulnerable = 120;
             const c = [...wss.clients].find(cl => cl.id === id);
-            if (c) c.send(JSON.stringify({ type: 'player-dead' }));
+            if (c) c.send(JSON.stringify({ type: 'player-dead', cause: p.lastHitBy }));
         }
         if (p.mana < p.maxMana) {
             const regen = p.moving ? (2 / 60) : (4 / 60);
