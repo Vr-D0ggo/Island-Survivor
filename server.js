@@ -167,7 +167,7 @@ function spawnZombies(count) {
 function createOgre(x, y) {
     const size = 25;
     const hp = 50; // 5x player health
-    return { id: nextOgreId++, x, y, hp, maxHp: hp, size, speed: 1, cooldown: 0, vx: 0, vy: 0, target: null, fireCooldown: 0, burn: 0, wanderTimer: 0, angle: 0 };
+    return { id: nextOgreId++, x, y, hp, maxHp: hp, size, speed: 1, cooldown: 0, vx: 0, vy: 0, target: null, fireCooldown: 0, burn: 0, wanderTimer: 0, angle: 0, facing: 0 };
 }
 
 function spawnOgres(count) {
@@ -345,7 +345,8 @@ wss.on('connection', ws => {
         skillPoints: 0,
         skills: {},
         attackRange: 0,
-        class: null
+        class: null,
+        poison: 0
     };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
@@ -419,6 +420,7 @@ wss.on('connection', ws => {
                             respawnTime = 6 * 60 * 1000;
                         }
                         addItemToPlayer(playerId, item, quantity);
+                        player.level = (player.level || 1) + 1;
                         setTimeout(() => {
                             resource.hp = resource.maxHp;
                             resource.harvested = false;
@@ -442,6 +444,7 @@ wss.on('connection', ws => {
                         addItemToPlayer(playerId, 'Raw Meat', 1 + Math.floor(Math.random() * 3));
                         if (Math.random() < 0.1) addItemToPlayer(playerId, 'Tusk', 1);
                         boars = boars.filter(b => b.id !== boar.id);
+                        player.level = (player.level || 1) + 1;
                     } else {
                         if (boar.behavior !== 'passive') {
                             if (boar.behavior !== 'half' || boar.hp <= boar.maxHp / 2) {
@@ -480,6 +483,7 @@ wss.on('connection', ws => {
                     if (ogre.hp <= 0) {
                         ogres = ogres.filter(o => o.id !== ogre.id);
                         groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: ogre.x, y: ogre.y });
+                        player.level = (player.level || 1) + 1;
                     }
                     broadcast({ type: 'ogre-update', ogre });
                 }
@@ -491,7 +495,7 @@ wss.on('connection', ws => {
                     player.mana -= 50;
                     const angle = Math.atan2(targetY - player.y, targetX - player.x);
                     const speed = 4;
-                    const spawnDist = player.size + 5;
+                    const spawnDist = player.size + 20;
                     const sx = player.x + Math.cos(angle) * spawnDist;
                     const sy = player.y + Math.sin(angle) * spawnDist;
                     projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId });
@@ -632,11 +636,13 @@ wss.on('connection', ws => {
                         const total = player.maxHp * 0.25;
                         let dealt = 0;
                         const steps = 5;
+                        player.poison = steps;
                         const interval = setInterval(() => {
                             const p = players[playerId];
                             if (!p) { clearInterval(interval); return; }
                             const dmg = total / steps;
                             p.hp = Math.max(0, p.hp - dmg);
+                            p.poison = Math.max(0, (p.poison || 0) - 1);
                             ws.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
                             dealt += dmg;
                             if (dealt >= total || p.hp <= 0) clearInterval(interval);
@@ -658,6 +664,7 @@ wss.on('connection', ws => {
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                     ws.send(JSON.stringify({ type: 'player-hit', hp: player.hp }));
                 }
+                player.level = (player.level || 1) + 1;
                 break;
             }
             case 'furnace-cook': {
@@ -992,6 +999,9 @@ function gameLoop() {
             }
             for (const b of boars) potentials.push({ entity: b, type: 'boar', id: b.id });
             for (const z of zombies) potentials.push({ entity: z, type: 'zombie', id: z.id });
+            for (const g of groundItems) {
+                if (g.item === 'Raw Meat') potentials.push({ entity: g, type: 'meat', id: g.id });
+            }
             for (const t of potentials) {
                 const d = getDistance(t.entity, ogre);
                 if (d < minDist) { minDist = d; targetData = { entity: t.entity, type: t.type, id: t.id }; }
@@ -1000,35 +1010,54 @@ function gameLoop() {
         }
         if (targetData) {
             ogre.wanderTimer = 0;
-            moveToward(ogre, targetData.entity);
             const dist = getDistance(ogre, targetData.entity);
-            if (dist < 300 && ogre.fireCooldown <= 0) {
-                const angle = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
-                const speed = 4;
-                projectiles.push({ id: nextProjectileId++, x: ogre.x, y: ogre.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
-                ogre.fireCooldown = 90;
-            }
-            if (dist < ogre.size + targetData.entity.size + 10 && ogre.cooldown <= 0) {
-                if (targetData.type !== 'player' || targetData.entity.invulnerable <= 0) {
-                    const dmg = Math.floor((targetData.entity.maxHp || 10) / 2);
-                    targetData.entity.hp = Math.max(0, targetData.entity.hp - dmg);
-                    if (targetData.type === 'player') {
-                        targetData.entity.lastHitBy = 'ogre';
-                        const c = [...wss.clients].find(cl => cl.id === targetData.id);
-                        if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetData.entity.hp }));
-                    } else if (targetData.type === 'boar') {
-                        targetData.entity.aggressive = true;
-                        targetData.entity.target = { type: 'ogre', id: ogre.id };
-                        if (targetData.entity.hp <= 0) boars = boars.filter(b => b.id !== targetData.id);
-                        broadcast({ type: 'boar-update', boar: targetData.entity });
-                    } else if (targetData.type === 'zombie') {
-                        targetData.entity.aggressive = true;
-                        targetData.entity.target = { type: 'ogre', id: ogre.id };
-                        if (targetData.entity.hp <= 0) zombies = zombies.filter(z => z.id !== targetData.id);
-                        broadcast({ type: 'zombie-update', zombie: targetData.entity });
-                    }
+            if (targetData.type === 'meat') {
+                if (dist < 20) {
+                    ogre.hp = Math.min(ogre.maxHp, ogre.hp + 5);
+                    groundItems = groundItems.filter(g => g.id !== targetData.id);
+                    ogre.target = null;
+                } else {
+                    moveToward(ogre, targetData.entity);
+                    ogre.facing = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
                 }
-                ogre.cooldown = 90;
+            } else {
+                if (targetData.type === 'player' && dist < 300) {
+                    ogre.vx = 0;
+                    ogre.vy = 0;
+                    ogre.facing = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
+                } else {
+                    moveToward(ogre, targetData.entity);
+                    ogre.facing = Math.atan2(ogre.vy, ogre.vx);
+                }
+                if (dist < 300 && ogre.fireCooldown <= 0) {
+                    const angle = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
+                    ogre.facing = angle;
+                    const speed = 4;
+                    projectiles.push({ id: nextProjectileId++, x: ogre.x, y: ogre.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+                    ogre.fireCooldown = 90;
+                }
+                if (dist < ogre.size + (targetData.entity.size || 10) + 10 && ogre.cooldown <= 0) {
+                    if (targetData.type !== 'player' || targetData.entity.invulnerable <= 0) {
+                        const dmg = Math.floor((targetData.entity.maxHp || 10) / 2);
+                        targetData.entity.hp = Math.max(0, targetData.entity.hp - dmg);
+                        if (targetData.type === 'player') {
+                            targetData.entity.lastHitBy = 'ogre';
+                            const c = [...wss.clients].find(cl => cl.id === targetData.id);
+                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetData.entity.hp }));
+                        } else if (targetData.type === 'boar') {
+                            targetData.entity.aggressive = true;
+                            targetData.entity.target = { type: 'ogre', id: ogre.id };
+                            if (targetData.entity.hp <= 0) boars = boars.filter(b => b.id !== targetData.id);
+                            broadcast({ type: 'boar-update', boar: targetData.entity });
+                        } else if (targetData.type === 'zombie') {
+                            targetData.entity.aggressive = true;
+                            targetData.entity.target = { type: 'ogre', id: ogre.id };
+                            if (targetData.entity.hp <= 0) zombies = zombies.filter(z => z.id !== targetData.id);
+                            broadcast({ type: 'zombie-update', zombie: targetData.entity });
+                        }
+                    }
+                    ogre.cooldown = 90;
+                }
             }
         } else {
             if (ogre.wanderTimer <= 0) {
@@ -1039,6 +1068,7 @@ function gameLoop() {
             } else {
                 ogre.wanderTimer--;
             }
+            ogre.facing = Math.atan2(ogre.vy, ogre.vx);
         }
         const nx = ogre.x + ogre.vx;
         const ny = ogre.y + ogre.vy;
@@ -1079,7 +1109,7 @@ function gameLoop() {
             broadcast({ type: 'player-leave', playerId: id });
             const c = [...wss.clients].find(cl => cl.id === id);
             if (c) c.send(JSON.stringify({ type: 'player-dead', cause: p.lastHitBy }));
-            broadcast({ type: 'chat-message', sender: 'Server', message: `${p.name} died` });
+            broadcast({ type: 'chat-message', sender: 'Server', message: `${p.name} died`, color: 'red' });
         }
         if (p.mana < p.maxMana) {
             const regen = p.moving ? (2 / 60) : (4 / 60);

@@ -38,6 +38,7 @@ const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
+const ogreImg = new Image(); ogreImg.src = '/icons/Ork.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
 const bedImg = new Image(); bedImg.src = '/icons/Bed.png';
@@ -296,7 +297,7 @@ socket.onmessage = event => {
             }
             if (deathScreen) deathScreen.classList.remove('hidden');
             break;
-        case 'chat-message': addChatMessage(data.sender, data.message); break;
+        case 'chat-message': addChatMessage(data.sender, data.message, data.color); break;
     }
 };
 
@@ -629,6 +630,20 @@ function drawPlayer(player, isMe) {
         ctx.fillStyle = 'green';
         ctx.fillRect(x - player.size, y - player.size - 10, (player.hp / player.maxHp) * player.size * 2, 6);
     }
+    if (player.poison && player.poison > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = 'yellow';
+        ctx.beginPath();
+        ctx.arc(x, y, player.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = 'green';
+        ctx.beginPath();
+        ctx.arc(x, y, player.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
     if (player.burn && player.burn > 0) {
         ctx.save();
         ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
@@ -686,20 +701,21 @@ function drawResource(resource) {
 function drawBoar(boar) {
     const size = boar.size * 2;
     drawShadow(boar.x, boar.y, size, size / 2);
+    const angle = Math.atan2(boar.vy || 0, boar.vx || 0);
+    ctx.save();
+    ctx.translate(boar.x, boar.y);
+    if (boar.vx !== 0 || boar.vy !== 0) ctx.rotate(angle);
+    ctx.drawImage(boarImg, -size / 2, -size / 2, size, size);
     if (boar.color) {
-        ctx.save();
-        ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
         ctx.globalCompositeOperation = 'source-atop';
         ctx.fillStyle = boar.color;
         ctx.globalAlpha = 0.3;
         ctx.beginPath();
-        ctx.arc(boar.x, boar.y, size / 2, 0, Math.PI * 2);
+        ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
-        ctx.restore();
-    } else {
-        ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
     }
+    ctx.restore();
     if (boar.hp < boar.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(boar.x - boar.size, boar.y - boar.size - 10, boar.size * 2, 6);
@@ -753,14 +769,12 @@ function drawZombie(zombie) {
 
 function drawOgre(ogre) {
     drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
-    ctx.beginPath();
-    ctx.arc(ogre.x, ogre.y, ogre.size, 0, Math.PI * 2);
-    ctx.fillStyle = '#800080';
-    ctx.fill();
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.drawImage(fireStaffImg, ogre.x - 16, ogre.y - 16, 32, 32);
+    const angle = ogre.facing || Math.atan2(ogre.vy || 0, ogre.vx || 0);
+    ctx.save();
+    ctx.translate(ogre.x, ogre.y);
+    ctx.rotate(angle);
+    ctx.drawImage(ogreImg, -ogre.size, -ogre.size, ogre.size * 2, ogre.size * 2);
+    ctx.restore();
     if (ogre.burn && ogre.burn > 0) {
         ctx.save();
         ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
@@ -866,7 +880,7 @@ function gameLoop() {
         const me = players[myPlayerId];
         if (preSpawn) {
             if (!spectatorTarget || spectatorTarget.hp <= 0) {
-                const options = [...boars, ...zombies];
+                const options = [...boars, ...zombies, ...ogres];
                 spectatorTarget = options.length ? options[Math.floor(Math.random() * options.length)] : me;
             }
             const target = spectatorTarget || me;
@@ -898,7 +912,13 @@ furnaceCookBtn.addEventListener('click', () => {
     socket.send(JSON.stringify({ type: 'furnace-cook', input: furnaceInput.value, fuel: furnaceFuel.value }));
     furnaceScreen.classList.add('hidden');
 });
-function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
+function addChatMessage(sender, message, color){
+    const li = document.createElement('li');
+    li.textContent = `${sender}: ${message}`;
+    if (color) li.style.color = color;
+    chatMessages.appendChild(li);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyQ' && document.activeElement !== chatInput) { skillTree.classList.toggle('hidden'); updateLevelUI(); } });
