@@ -978,10 +978,28 @@ function render() {
             if (s.type === 'torch') {
                 const tx = s.x - camera.x + (s.size || GRID_CELL_SIZE) / 2;
                 const ty = s.y - camera.y + (s.size || GRID_CELL_SIZE) / 2;
-                const radius = 100;
+                const radius = 150;
                 const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, radius);
                 grad.addColorStop(0, 'rgba(0,0,0,1)');
                 grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+        ctx.restore();
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        Object.values(structures).forEach(s => {
+            if (s.type === 'torch') {
+                const tx = s.x - camera.x + (s.size || GRID_CELL_SIZE) / 2;
+                const ty = s.y - camera.y + (s.size || GRID_CELL_SIZE) / 2;
+                const radius = 150;
+                const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, radius);
+                grad.addColorStop(0, 'rgba(255, 220, 100, 0.8)');
+                grad.addColorStop(1, 'rgba(255, 220, 100, 0)');
                 ctx.fillStyle = grad;
                 ctx.beginPath();
                 ctx.arc(tx, ty, radius, 0, Math.PI * 2);
