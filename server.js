@@ -320,7 +320,33 @@ wss.on('connection', ws => {
     ws.id = playerId;
     const spawnX = WORLD_WIDTH / 2;
     const spawnY = WORLD_HEIGHT / 2;
-    const newPlayer = { id: playerId, name: 'Survivor', x: spawnX, y: spawnY, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0, lastHitBy: null, burn: 0, mana: 100, maxMana: 100, moving: false, spawnX, spawnY, invulnerable: 0, active: false };
+    const newPlayer = {
+        id: playerId,
+        name: 'Survivor',
+        x: spawnX,
+        y: spawnY,
+        speed: 3,
+        size: 20,
+        inventory: Array(INVENTORY_SLOTS).fill(null),
+        hotbar: Array(4).fill(null),
+        hp: 10,
+        maxHp: 10,
+        heldIndex: 0,
+        lastHitBy: null,
+        burn: 0,
+        mana: 100,
+        maxMana: 100,
+        moving: false,
+        spawnX,
+        spawnY,
+        invulnerable: 0,
+        active: false,
+        level: 1,
+        skillPoints: 0,
+        skills: {},
+        attackRange: 0,
+        class: null
+    };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
@@ -409,7 +435,7 @@ wss.on('connection', ws => {
             }
             case 'hit-boar': {
                 const boar = boars.find(b => b.id === data.boarId);
-                if (boar && getDistance(player, boar) < player.size + boar.size + 20) {
+                if (boar && getDistance(player, boar) < player.size + boar.size + 20 + (player.attackRange || 0)) {
                     const dmg = getDamage(data.item, 'boar');
                     boar.hp -= dmg;
                     if (boar.hp <= 0) {
@@ -430,11 +456,13 @@ wss.on('connection', ws => {
             }
             case 'hit-zombie': {
                 const zombie = zombies.find(z => z.id === data.zombieId);
-                if (zombie && getDistance(player, zombie) < player.size + zombie.size + 20) {
+                if (zombie && getDistance(player, zombie) < player.size + zombie.size + 20 + (player.attackRange || 0)) {
                     const dmg = getDamage(data.item, 'zombie');
                     zombie.hp -= dmg;
                     if (zombie.hp <= 0) {
                         zombies = zombies.filter(z => z.id !== zombie.id);
+                        player.level = (player.level || 1) + 1;
+                        player.skillPoints = (player.skillPoints || 0) + 1;
                     } else {
                         zombie.aggressive = true;
                         zombie.target = { type: 'player', id: playerId };
@@ -445,7 +473,7 @@ wss.on('connection', ws => {
             }
             case 'hit-ogre': {
                 const ogre = ogres.find(o => o.id === data.ogreId);
-                if (ogre && getDistance(player, ogre) < player.size + ogre.size + 20) {
+                if (ogre && getDistance(player, ogre) < player.size + ogre.size + 20 + (player.attackRange || 0)) {
                     const dmg = getDamage(data.item, 'ogre');
                     ogre.hp -= dmg;
                     ogre.target = { type: 'player', id: playerId };
@@ -464,6 +492,21 @@ wss.on('connection', ws => {
                     const angle = Math.atan2(targetY - player.y, targetX - player.x);
                     const speed = 4;
                     projectiles.push({ id: nextProjectileId++, x: player.x, y: player.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+                }
+                break;
+            }
+            case 'unlock-skill': {
+                const skill = data.skill;
+                if (player.skillPoints > 0) {
+                    if (skill === 'range' && !player.skills.range) {
+                        player.skillPoints--;
+                        player.skills.range = true;
+                        player.attackRange += 20;
+                    } else if (['mage', 'knight', 'summoner'].includes(skill) && player.skills.range && !player.class) {
+                        player.skillPoints--;
+                        player.skills[skill] = true;
+                        player.class = skill;
+                    }
                 }
                 break;
             }
@@ -832,11 +875,10 @@ function gameLoop() {
     for (const zombie of zombies) {
         if (zombie.cooldown > 0) zombie.cooldown--;
         if (dayNight.isDay && !isInShadow(zombie)) {
-            zombie.burn = 120;
-        }
-        if (zombie.burn > 0) {
-            zombie.burn--;
+            zombie.burn = Math.min(120, (zombie.burn || 0) + 1);
             if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
+        } else if (zombie.burn > 0) {
+            zombie.burn--;
         }
         if (!zombie.aggressive) {
             let detected = false;
