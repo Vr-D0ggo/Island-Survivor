@@ -501,6 +501,11 @@ canvas.addEventListener('mousedown', e => {
         const dist = Math.hypot(mouseX - zombie.x, mouseY - zombie.y);
         if (dist < zombie.size && dist < zombieDist) { zombieDist = dist; closestZombie = zombie; }
     }
+    let closestOgre = null; let ogreDist = Infinity;
+    for (const ogre of ogres) {
+        const dist = Math.hypot(mouseX - ogre.x, mouseY - ogre.y);
+        if (dist < ogre.size && dist < ogreDist) { ogreDist = dist; closestOgre = ogre; }
+    }
     let closestResource = null; let closestDist = Infinity;
     for (const resource of resources) {
         if (!resource.harvested) {
@@ -512,6 +517,8 @@ canvas.addEventListener('mousedown', e => {
         socket.send(JSON.stringify({ type: 'hit-boar', boarId: closestBoar.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestZombie) {
         socket.send(JSON.stringify({ type: 'hit-zombie', zombieId: closestZombie.id, item: selectedItem ? selectedItem.item : null }));
+    } else if (closestOgre) {
+        socket.send(JSON.stringify({ type: 'hit-ogre', ogreId: closestOgre.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
     } else {

@@ -766,7 +766,7 @@ function gameLoop() {
                     boar.hp = Math.max(0, boar.hp - 2);
                     boar.burn = 120;
                     boar.aggressive = true;
-                    const nearestOgre = ogres.reduce((a,b)=>getDistance(b,boar)<getDistance(a,boar)?b:a, ogres[0]);
+                    const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,boar)<getDistance(a,boar)?b:a) : null;
                     if (nearestOgre) boar.target = { type: 'ogre', id: nearestOgre.id };
                     broadcast({ type: 'boar-update', boar });
                     hit = true;
@@ -780,9 +780,21 @@ function gameLoop() {
                     zombie.hp = Math.max(0, zombie.hp - 2);
                     zombie.burn = 120;
                     zombie.aggressive = true;
-                    const nearestOgre = ogres.reduce((a,b)=>getDistance(b,zombie)<getDistance(a,zombie)?b:a, ogres[0]);
+                    const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,zombie)<getDistance(a,zombie)?b:a) : null;
                     if (nearestOgre) zombie.target = { type: 'ogre', id: nearestOgre.id };
                     broadcast({ type: 'zombie-update', zombie });
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if (!hit) {
+            for (const ogre of ogres) {
+                if (getDistance(ogre, proj) < ogre.size) {
+                    ogre.hp = Math.max(0, ogre.hp - 2);
+                    ogre.burn = 120;
+                    if (proj.owner) ogre.target = { type: 'player', id: proj.owner };
+                    broadcast({ type: 'ogre-update', ogre });
                     hit = true;
                     break;
                 }
