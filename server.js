@@ -654,7 +654,9 @@ wss.on('connection', ws => {
                         const baseX = gridX * GRID_CELL_SIZE;
                         const baseY = gridY * GRID_CELL_SIZE;
                         structures[coordKey] = { type: structureType, x: baseX, y: baseY, size: GRID_CELL_SIZE };
-                        markArea(gridX, gridY, 1, true);
+                        if (structureType !== 'torch') {
+                            markArea(gridX, gridY, 1, true);
+                        }
                         broadcast({ type: 'structure-update', structures });
                         ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                     }
@@ -687,7 +689,7 @@ wss.on('connection', ws => {
                     if (key.startsWith('b')) {
                         const [bx, by] = key.slice(1).split(',').map(Number);
                         blockGrid[bx][by] = false;
-                    } else if (key.startsWith('w')) {
+                    } else if (key.startsWith('w') && structure.type !== 'torch') {
                         const [gx, gy] = key.slice(1).split(',').map(Number);
                         markArea(gx, gy, 1, false);
                     }
