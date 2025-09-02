@@ -311,7 +311,7 @@ wss.on('connection', ws => {
     ws.id = playerId;
     const spawnX = WORLD_WIDTH / 2;
     const spawnY = WORLD_HEIGHT / 2;
-    const newPlayer = { id: playerId, x: spawnX, y: spawnY, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0, lastHitBy: null, burn: 0, spawnX, spawnY };
+    const newPlayer = { id: playerId, x: spawnX, y: spawnY, speed: 3, size: 20, inventory: Array(INVENTORY_SLOTS).fill(null), hotbar: Array(4).fill(null), hp: 10, maxHp: 10, heldIndex: 0, lastHitBy: null, burn: 0, mana: 100, maxMana: 100, moving: false, spawnX, spawnY };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
@@ -332,6 +332,7 @@ wss.on('connection', ws => {
                     player.x = nx;
                     player.y = ny;
                 }
+                player.moving = true;
                 break;
             }
             case 'held-item':
@@ -421,8 +422,19 @@ wss.on('connection', ws => {
                     ogre.target = { type: 'player', id: playerId };
                     if (ogre.hp <= 0) {
                         ogres = ogres.filter(o => o.id !== ogre.id);
+                        groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: ogre.x, y: ogre.y });
                     }
                     broadcast({ type: 'ogre-update', ogre });
+                }
+                break;
+            }
+            case 'cast-staff': {
+                const { targetX, targetY } = data;
+                if (player.mana >= 50) {
+                    player.mana -= 50;
+                    const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                    const speed = 4;
+                    projectiles.push({ id: nextProjectileId++, x: player.x, y: player.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
                 }
                 break;
             }
@@ -499,6 +511,37 @@ wss.on('connection', ws => {
                     player.inventory[from] = player.inventory[to];
                     player.inventory[to] = temp;
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                }
+                break;
+            }
+            case 'move-item': {
+                const { fromType, fromIndex, toType, toIndex } = data;
+                const fromArr = fromType === 'hotbar' ? player.hotbar : player.inventory;
+                const toArr = toType === 'hotbar' ? player.hotbar : player.inventory;
+                if (
+                    ['hotbar', 'inventory'].includes(fromType) &&
+                    ['hotbar', 'inventory'].includes(toType) &&
+                    Number.isInteger(fromIndex) && Number.isInteger(toIndex) &&
+                    fromIndex >= 0 && fromIndex < fromArr.length &&
+                    toIndex >= 0 && toIndex < toArr.length
+                ) {
+                    const temp = fromArr[fromIndex];
+                    fromArr[fromIndex] = toArr[toIndex];
+                    toArr[toIndex] = temp;
+                    ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                }
+                break;
+            }
+            case 'drop-item': {
+                const { fromType, index } = data;
+                const arr = fromType === 'hotbar' ? player.hotbar : player.inventory;
+                if (['hotbar', 'inventory'].includes(fromType) && Number.isInteger(index) && index >= 0 && index < arr.length) {
+                    const slot = arr[index];
+                    if (slot) {
+                        groundItems.push({ id: nextItemId++, item: slot.item, quantity: slot.quantity, x: player.x, y: player.y, pickupTimer: 300 });
+                        arr[index] = null;
+                        ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
+                    }
                 }
                 break;
             }
@@ -601,6 +644,9 @@ function gameLoop() {
                 z.target = null;
                 z.burn = 0;
             });
+            if (boars.length < 20) spawnBoars(3);
+        } else if (zombies.length < 10) {
+            spawnZombies(5);
         }
     }
 
@@ -907,9 +953,15 @@ function gameLoop() {
             const c = [...wss.clients].find(cl => cl.id === id);
             if (c) c.send(JSON.stringify({ type: 'player-dead' }));
         }
+        if (p.mana < p.maxMana) {
+            const regen = p.moving ? (2 / 60) : (4 / 60);
+            p.mana = Math.min(p.maxMana, p.mana + regen);
+        }
+        p.moving = false;
     }
 
     groundItems = groundItems.filter(g => {
+        if (g.pickupTimer && g.pickupTimer > 0) { g.pickupTimer--; return true; }
         for (const id in players) {
             const p = players[id];
             if (getDistance(p, g) < 30) {

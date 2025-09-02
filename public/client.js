@@ -59,7 +59,8 @@ const ITEM_ICONS = {
     'Stone Sword': 'Sword.png',
     'Workbench': 'workbench.png',
     'Furnace': 'Oven.png',
-    'Bed': 'Bed.png'
+    'Bed': 'Bed.png',
+    'Fire Staff': 'FireStaff.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -84,9 +85,10 @@ const furnaceFuel = document.getElementById('furnace-fuel');
 const furnaceCookBtn = document.getElementById('furnace-cook-btn');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 const healthFill = document.getElementById('player-health-fill');
+const manaFill = document.getElementById('player-mana-fill');
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
-let dragSrcIndex = null;
+let dragData = null; let dropHandled = false;
 let deathFade = 0;
 let deathFadeDir = 0;
 canvas.addEventListener('mousemove', e => {
@@ -128,6 +130,13 @@ function updatePlayerHealthBar() {
     const me = players[myPlayerId];
     if (me && healthFill) {
         healthFill.style.width = `${(me.hp / me.maxHp) * 100}%`;
+    }
+}
+
+function updatePlayerManaBar() {
+    const me = players[myPlayerId];
+    if (me && manaFill) {
+        manaFill.style.height = `${(me.mana / me.maxMana) * 100}%`;
     }
 }
 
@@ -175,6 +184,7 @@ socket.onmessage = event => {
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
             updatePlayerHealthBar();
+            updatePlayerManaBar();
             socket.send(JSON.stringify({ type: 'held-item', index: selectedHotbarSlot }));
             break;
         case 'game-state':
@@ -193,6 +203,8 @@ socket.onmessage = event => {
                     clientPlayer.heldIndex = serverPlayer.heldIndex;
                     clientPlayer.hp = serverPlayer.hp;
                     clientPlayer.burn = serverPlayer.burn;
+                    clientPlayer.mana = serverPlayer.mana;
+                    clientPlayer.maxMana = serverPlayer.maxMana;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
@@ -206,6 +218,7 @@ socket.onmessage = event => {
                 }
             }
             updatePlayerHealthBar();
+            updatePlayerManaBar();
             break;
         case 'player-join': if (data.player.id !== myPlayerId) { players[data.player.id] = data.player; initializePlayerForRender(players[data.player.id]); } break;
         case 'player-leave': delete players[data.playerId]; break;
@@ -276,17 +289,25 @@ function updateInventoryUI(){
         slot.className = 'slot';
         slot.dataset.index = i;
         slot.draggable = !!item;
-        slot.addEventListener('dragstart', () => { dragSrcIndex = i; });
+        slot.addEventListener('dragstart', () => { dragData = { type: 'inventory', index: i }; dropHandled = false; });
         slot.addEventListener('dragover', e => e.preventDefault());
         slot.addEventListener('drop', e => {
-            e.preventDefault();
+            e.preventDefault(); dropHandled = true;
             const dest = parseInt(e.currentTarget.dataset.index, 10);
-            if (dragSrcIndex !== null && dest !== dragSrcIndex) {
-                socket.send(JSON.stringify({ type: 'swap-inventory', from: dragSrcIndex, to: dest }));
+            if (!dragData) return;
+            if (dragData.type === 'inventory' && dest !== dragData.index) {
+                socket.send(JSON.stringify({ type: 'swap-inventory', from: dragData.index, to: dest }));
+            } else if (dragData.type === 'hotbar') {
+                socket.send(JSON.stringify({ type: 'move-item', fromType: 'hotbar', fromIndex: dragData.index, toType: 'inventory', toIndex: dest }));
             }
-            dragSrcIndex = null;
+            dragData = null;
         });
-        slot.addEventListener('dragend', () => { dragSrcIndex = null; });
+        slot.addEventListener('dragend', () => {
+            if (!dropHandled && dragData) {
+                socket.send(JSON.stringify({ type: 'drop-item', fromType: dragData.type, index: dragData.index }));
+            }
+            dragData = null;
+        });
         if(item){
             const iconName = ITEM_ICONS[item.item];
             if(iconName){
@@ -332,6 +353,29 @@ function updateHotbarUI() {
     hotbarSlots.forEach((slot, i) => {
         slot.classList.toggle('selected', i === selectedHotbarSlot);
         const item = me.hotbar[i];
+        if (!slot.dataset.bound) {
+            slot.addEventListener('dragover', e => e.preventDefault());
+            slot.addEventListener('dragstart', () => { if (me.hotbar[i]) { dragData = { type: 'hotbar', index: i }; dropHandled = false; }});
+            slot.addEventListener('drop', e => {
+                e.preventDefault(); dropHandled = true;
+                const dest = i;
+                if (!dragData) return;
+                if (dragData.type === 'inventory') {
+                    socket.send(JSON.stringify({ type: 'move-item', fromType: 'inventory', fromIndex: dragData.index, toType: 'hotbar', toIndex: dest }));
+                } else if (dragData.type === 'hotbar' && dest !== dragData.index) {
+                    socket.send(JSON.stringify({ type: 'move-item', fromType: 'hotbar', fromIndex: dragData.index, toType: 'hotbar', toIndex: dest }));
+                }
+                dragData = null;
+            });
+            slot.addEventListener('dragend', () => {
+                if (!dropHandled && dragData) {
+                    socket.send(JSON.stringify({ type: 'drop-item', fromType: dragData.type, index: dragData.index }));
+                }
+                dragData = null;
+            });
+            slot.dataset.bound = '1';
+        }
+        slot.draggable = !!item;
         if (item) {
             const iconName = ITEM_ICONS[item.item];
             if (iconName) {
@@ -436,6 +480,13 @@ canvas.addEventListener('contextmenu', e => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
+    const me = players[myPlayerId];
+    if (!me || !me.hotbar) return;
+    const selectedItem = me.hotbar[selectedHotbarSlot];
+    if (selectedItem && selectedItem.item === 'Fire Staff') {
+        socket.send(JSON.stringify({ type: 'cast-staff', targetX: mouseX, targetY: mouseY }));
+        return;
+    }
     let key = null;
     const blockX = Math.floor(mouseX / BLOCK_SIZE);
     const blockY = Math.floor(mouseY / BLOCK_SIZE);
@@ -448,7 +499,6 @@ canvas.addEventListener('contextmenu', e => {
     }
     if (key && structures[key]) {
         const s = structures[key];
-        const me = players[myPlayerId];
         if (me) {
             const cx = s.x + s.size / 2;
             const cy = s.y + s.size / 2;
@@ -465,9 +515,6 @@ canvas.addEventListener('contextmenu', e => {
             }
         }
     }
-    const me = players[myPlayerId];
-    if (!me || !me.hotbar) return;
-    const selectedItem = me.hotbar[selectedHotbarSlot];
     if (!selectedItem) return;
     const snap = ['Workbench','Furnace','Bed'].includes(selectedItem.item) ? GRID_CELL_SIZE : BLOCK_SIZE;
     const targetX = Math.floor(mouseX / snap) * snap;
