@@ -61,7 +61,8 @@ const ITEM_ICONS = {
     'Workbench': 'workbench.png',
     'Furnace': 'Oven.png',
     'Bed': 'Bed.png',
-    'Fire Staff': 'FireStaff.png'
+    'Fire Staff': 'FireStaff.png',
+    'Torch': 'FireBall.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -73,7 +74,8 @@ const RECIPES = {
     'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Pickaxe'] },
     'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] },
     'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] },
-    'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] }
+    'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] },
+    'Torch': { cost: { Wood: 3 }, icon: ITEM_ICONS['Torch'] }
 };
 
 // --- Input & UI State ---
@@ -101,6 +103,24 @@ const rangeNode = document.getElementById('skill-range');
 const mageNode = document.getElementById('skill-mage');
 const knightNode = document.getElementById('skill-knight');
 const summonerNode = document.getElementById('skill-summoner');
+const knightSkillGroup = document.getElementById('knight-skills');
+const summonerSkillGroup = document.getElementById('summoner-skills');
+const mageSkillGroup = document.getElementById('mage-skills');
+const knightSkillNodes = [
+    document.getElementById('skill-knight-damage'),
+    document.getElementById('skill-knight-speed'),
+    document.getElementById('skill-knight-health')
+];
+const summonerSkillNodes = [
+    document.getElementById('skill-summoner-attack'),
+    document.getElementById('skill-summoner-healer'),
+    document.getElementById('skill-summoner-ranged')
+];
+const mageSkillNodes = [
+    document.getElementById('skill-mage-mana'),
+    document.getElementById('skill-mage-regen'),
+    document.getElementById('skill-mage-slow')
+];
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
@@ -178,9 +198,39 @@ function updateLevelUI() {
         node.classList.toggle('unlocked', unlocked);
         node.classList.toggle('locked', !(unlocked || available));
     });
+    if (knightSkillGroup) knightSkillGroup.classList.toggle('hidden', me.class !== 'knight');
+    if (summonerSkillGroup) summonerSkillGroup.classList.toggle('hidden', me.class !== 'summoner');
+    if (mageSkillGroup) mageSkillGroup.classList.toggle('hidden', me.class !== 'mage');
+    knightSkillNodes.forEach(node => {
+        const skill = node.dataset.skill;
+        const unlocked = me.knightSkills && me.knightSkills[skill];
+        const limitReached = me.knightSkills && Object.keys(me.knightSkills).length >= 2 && !unlocked;
+        const available = me.class === 'knight' && me.skillPoints > 0 && !unlocked && !limitReached;
+        node.classList.toggle('unlocked', unlocked);
+        node.classList.toggle('locked', !(unlocked || available));
+    });
+    summonerSkillNodes.forEach(node => {
+        const available = me.class === 'summoner' && me.skillPoints > 0;
+        node.classList.toggle('locked', !available);
+        node.classList.toggle('unlocked', available);
+    });
+    mageSkillNodes.forEach(node => {
+        const skill = node.dataset.skill;
+        const unlocked = me.mageSkills && me.mageSkills[skill];
+        const available = me.class === 'mage' && me.skillPoints > 0 && !unlocked;
+        node.classList.toggle('unlocked', unlocked);
+        node.classList.toggle('locked', !(unlocked || available));
+    });
 }
 
 function drawShadow(x, y, w, h) {
+    for (const s of Object.values(structures)) {
+        if (s.type === 'torch') {
+            const tx = s.x + (s.size || GRID_CELL_SIZE) / 2;
+            const ty = s.y + (s.size || GRID_CELL_SIZE) / 2;
+            if (Math.hypot(tx - x, ty - y) < 120) return;
+        }
+    }
     const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
     const cycleTime = dayNight.cycleTime % cycleDuration;
     let alpha = 0.2;
@@ -243,11 +293,19 @@ socket.onmessage = event => {
                     clientPlayer.burn = serverPlayer.burn;
                     clientPlayer.mana = serverPlayer.mana;
                     clientPlayer.maxMana = serverPlayer.maxMana;
+                    clientPlayer.manaRegen = serverPlayer.manaRegen || 0;
                     clientPlayer.level = serverPlayer.level;
                     clientPlayer.skillPoints = serverPlayer.skillPoints;
                     clientPlayer.skills = serverPlayer.skills || {};
                     clientPlayer.attackRange = serverPlayer.attackRange || 0;
                     clientPlayer.class = serverPlayer.class || null;
+                    clientPlayer.speed = serverPlayer.speed;
+                    clientPlayer.baseSpeed = serverPlayer.baseSpeed;
+                    clientPlayer.knightSkills = serverPlayer.knightSkills || {};
+                    clientPlayer.summonerSkills = serverPlayer.summonerSkills || { attack: 0, healer: 0, ranged: 0 };
+                    clientPlayer.mageSkills = serverPlayer.mageSkills || {};
+                    clientPlayer.swordDamage = serverPlayer.swordDamage || 0;
+                    clientPlayer.canSlow = serverPlayer.canSlow;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
@@ -831,6 +889,8 @@ function drawStructure(structure) {
         ctx.drawImage(ovenImg, structure.x, structure.y, size, size);
     } else if (structure.type === 'bed') {
         ctx.drawImage(bedImg, structure.x, structure.y, size, size);
+    } else if (structure.type === 'torch') {
+        ctx.drawImage(fireBallImg, structure.x + size / 4, structure.y + size / 4, size / 2, size / 2);
     }
 }
 function render() {
@@ -870,6 +930,25 @@ function render() {
     ctx.restore();
     ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (darkness > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        Object.values(structures).forEach(s => {
+            if (s.type === 'torch') {
+                const tx = s.x - camera.x + (s.size || GRID_CELL_SIZE) / 2;
+                const ty = s.y - camera.y + (s.size || GRID_CELL_SIZE) / 2;
+                const radius = 100;
+                const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, radius);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+        ctx.restore();
+    }
     if (deathFadeDir !== 0) {
         deathFade += 0.02 * deathFadeDir;
         if (deathFade >= 1) { deathFade = 1; deathFadeDir = -1; }
@@ -941,6 +1020,17 @@ window.addEventListener('keydown', e => {
     }
 });
 window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'Space') {
+        const me = players[myPlayerId];
+        if (!me) return;
+        if (me.class === 'summoner') {
+            socket.send(JSON.stringify({ type: 'spawn-minion' }));
+        } else if (me.class === 'mage' && me.mageSkills && me.mageSkills['mage-slow']) {
+            socket.send(JSON.stringify({ type: 'cast-slow' }));
+        }
+    }
+});
+window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
     }
@@ -965,6 +1055,25 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
         const skill = node.dataset.skill;
         if (me && me.skillPoints > 0 && me.skills && me.skills.range && !me.class) {
             socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+        }
+    });
+});
+[...knightSkillNodes, ...summonerSkillNodes, ...mageSkillNodes].forEach(node => {
+    if (!node) return;
+    node.addEventListener('click', () => {
+        const me = players[myPlayerId];
+        const skill = node.dataset.skill;
+        if (!me || me.skillPoints <= 0) return;
+        if (me.class === 'knight') {
+            if (!me.knightSkills || !me.knightSkills[skill]) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            }
+        } else if (me.class === 'summoner') {
+            socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+        } else if (me.class === 'mage') {
+            if (!me.mageSkills || !me.mageSkills[skill]) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            }
         }
     });
 });

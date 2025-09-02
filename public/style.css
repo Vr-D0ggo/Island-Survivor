@@ -221,6 +221,7 @@ canvas {
     pointer-events: auto;
 }
 #skill-tree.hidden { display: none; }
+.class-skills.hidden { display: none; }
 #skill-tree .tree-panel {
     background-image: url('icons/NightSky.png');
     background-size: cover;
