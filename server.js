@@ -216,6 +216,12 @@ function sendLevelUpdate(ws, player) {
     if (ws) ws.send(JSON.stringify({ type: 'level-update', level: player.level, skillPoints: player.skillPoints }));
 }
 
+function levelUp(player, ws) {
+    player.level = (player.level || 1) + 1;
+    player.skillPoints = (player.skillPoints || 0) + 1;
+    sendLevelUpdate(ws, player);
+}
+
 function getDamage(item, target) {
     if (!item) return 1;
     const name = item.toLowerCase();
@@ -458,8 +464,7 @@ wss.on('connection', ws => {
                             respawnTime = 6 * 60 * 1000;
                         }
                         addItemToPlayer(playerId, item, quantity);
-                        player.level = (player.level || 1) + 1;
-                        sendLevelUpdate(ws, player);
+                        levelUp(player, ws);
                         setTimeout(() => {
                             resource.hp = resource.maxHp;
                             resource.harvested = false;
@@ -500,8 +505,7 @@ wss.on('connection', ws => {
                         addItemToPlayer(playerId, 'Raw Meat', 1 + Math.floor(Math.random() * 3));
                         if (Math.random() < 0.1) addItemToPlayer(playerId, 'Tusk', 1);
                         boars = boars.filter(b => b.id !== boar.id);
-                        player.level = (player.level || 1) + 1;
-                        sendLevelUpdate(ws, player);
+                        levelUp(player, ws);
                     } else {
                         if (boar.behavior !== 'passive') {
                             if (boar.behavior !== 'half' || boar.hp <= boar.maxHp / 2) {
@@ -524,9 +528,7 @@ wss.on('connection', ws => {
                     zombie.hp -= dmg;
                     if (zombie.hp <= 0) {
                         zombies = zombies.filter(z => z.id !== zombie.id);
-                        player.level = (player.level || 1) + 1;
-                        player.skillPoints = (player.skillPoints || 0) + 1;
-                        sendLevelUpdate(ws, player);
+                        levelUp(player, ws);
                     } else {
                         zombie.aggressive = true;
                         zombie.target = { type: 'player', id: playerId };
@@ -547,8 +549,7 @@ wss.on('connection', ws => {
                     if (ogre.hp <= 0) {
                         ogres = ogres.filter(o => o.id !== ogre.id);
                         groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: ogre.x, y: ogre.y });
-                        player.level = (player.level || 1) + 1;
-                        sendLevelUpdate(ws, player);
+                        levelUp(player, ws);
                     }
                     broadcast({ type: 'ogre-update', ogre });
                 }
@@ -779,8 +780,7 @@ wss.on('connection', ws => {
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                     ws.send(JSON.stringify({ type: 'player-hit', hp: player.hp }));
                 }
-                player.level = (player.level || 1) + 1;
-                sendLevelUpdate(ws, player);
+                levelUp(player, ws);
                 break;
             }
             case 'furnace-cook': {
@@ -873,10 +873,8 @@ function gameLoop() {
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
                     if (p.hp <= 0 && proj.owner && players[proj.owner]) {
                         const killer = players[proj.owner];
-                        killer.level = (killer.level || 1) + 1;
-                        killer.skillPoints = (killer.skillPoints || 0) + 1;
                         const kc = [...wss.clients].find(cl => cl.id === proj.owner);
-                        sendLevelUpdate(kc, killer);
+                        levelUp(killer, kc);
                     }
                 }
                 hit = true;
