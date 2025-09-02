@@ -100,7 +100,7 @@ let deathFade = 0;
 let deathFadeDir = 0;
 let preSpawn = true;
 let spectatorTarget = null;
-if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.classList.add('hidden'); };
+if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'respawn' })); };
 if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
 if (startBtn) startBtn.onclick = () => { preSpawn = false; preSpawnScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' })); };
 canvas.addEventListener('mousemove', e => {
@@ -501,6 +501,10 @@ canvas.addEventListener('contextmenu', e => {
     const me = players[myPlayerId];
     if (!me || !me.hotbar) return;
     const selectedItem = me.hotbar[selectedHotbarSlot];
+    if (selectedItem && ['Raw Meat','Cooked Meat','Apple'].includes(selectedItem.item)) {
+        socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
+        return;
+    }
     if (selectedItem && selectedItem.item === 'Fire Staff') {
         socket.send(JSON.stringify({ type: 'cast-staff', targetX: mouseX, targetY: mouseY }));
         return;
