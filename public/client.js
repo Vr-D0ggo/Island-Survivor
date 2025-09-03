@@ -101,6 +101,7 @@ const controlsBtn = document.getElementById('controls-btn');
 const classScreen = document.getElementById('class-screen');
 const classButtons = document.querySelectorAll('.class-option');
 const levelIndicator = document.getElementById('level-indicator');
+const summonerBar = document.getElementById('summoner-bar');
 const skillTree = document.getElementById('skill-tree');
 const skillPointsElem = document.getElementById('skill-points');
 const rangeNode = document.getElementById('skill-range');
@@ -237,6 +238,20 @@ function updateLevelUI() {
         node.classList.toggle('unlocked', unlocked);
         node.classList.toggle('locked', !(unlocked || available));
     });
+}
+
+function updateSummonerBar() {
+    const me = players[myPlayerId];
+    if (!summonerBar || !me || me.class !== 'summoner' || !me.summonerSkills) {
+        if (summonerBar) summonerBar.classList.add('hidden');
+        return;
+    }
+    const owned = zombies.filter(z => z.ownerId === myPlayerId && z.minionType === summonerSpawnType).length;
+    const max = me.summonerSkills[summonerSpawnType] || 0;
+    const remaining = Math.max(0, max - owned);
+    const label = summonerSpawnType.charAt(0).toUpperCase() + summonerSpawnType.slice(1);
+    summonerBar.textContent = `${label}: ${remaining} left`;
+    summonerBar.classList.remove('hidden');
 }
 
 function drawShadow(x, y, w, h) {
@@ -1046,6 +1061,7 @@ function gameLoop() {
                 }
             }
         }
+        updateSummonerBar();
     }
     render();
     requestAnimationFrame(gameLoop);
@@ -1086,14 +1102,27 @@ window.addEventListener('keydown', e => {
         const types = ['attack', 'healer', 'ranged'];
         const idx = types.indexOf(summonerSpawnType);
         summonerSpawnType = types[(idx + 1) % types.length];
+        updateSummonerBar();
     }
 });
+window.addEventListener('wheel', e => {
+    if (document.activeElement !== chatInput && players[myPlayerId]?.class === 'summoner') {
+        const types = ['attack', 'healer', 'ranged'];
+        let idx = types.indexOf(summonerSpawnType);
+        idx = (idx + (e.deltaY > 0 ? 1 : -1) + types.length) % types.length;
+        summonerSpawnType = types[idx];
+        updateSummonerBar();
+        e.preventDefault();
+    }
+}, { passive: false });
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'Space' && !e.repeat) {
         const me = players[myPlayerId];
         if (!me) return;
         if (me.class === 'summoner') {
-            socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+            if (me.mana >= 100) {
+                socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+            }
         } else if (me.class === 'mage' && me.canSlow) {
             socket.send(JSON.stringify({ type: 'cast-slow' }));
         }

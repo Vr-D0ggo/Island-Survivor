@@ -622,11 +622,12 @@ wss.on('connection', ws => {
                 break;
             }
             case 'spawn-minion': {
-                if (player.class === 'summoner' && player.summonerSkills) {
+                if (player.class === 'summoner' && player.summonerSkills && player.mana >= 100) {
                     const type = data.minionType || 'attack';
                     const ownedType = zombies.filter(z => z.ownerId === playerId && z.minionType === type).length;
                     const maxType = player.summonerSkills[type] || 0;
                     if (ownedType < maxType) {
+                        player.mana -= 100;
                         const pos = getSpawnPositionAround(player.x, player.y, 40);
                         const minion = createZombie(pos.x, pos.y, playerId, type);
                         zombies.push(minion);
