@@ -1094,7 +1094,7 @@ window.addEventListener('keydown', e => {
         if (!me) return;
         if (me.class === 'summoner') {
             socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
-        } else if (me.class === 'mage' && me.mageSkills && me.mageSkills['mage-slow']) {
+        } else if (me.class === 'mage' && me.canSlow) {
             socket.send(JSON.stringify({ type: 'cast-slow' }));
         }
         e.preventDefault();
