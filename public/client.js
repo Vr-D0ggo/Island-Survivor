@@ -844,7 +844,18 @@ function drawZombie(zombie) {
     drawShadow(x, y, zombie.size * 2, zombie.size);
     ctx.beginPath();
     ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
-    ctx.fillStyle = '#6b8e23';
+
+    // Pick colors based on the creature type for visual distinction.
+    let bodyColor = '#6b8e23'; // default zombie
+    let eyeColor = '#ccc';
+    if (zombie.kind === 'skeleton') {
+        bodyColor = '#ddd';
+        eyeColor = '#000';
+    } else if (zombie.kind === 'spirit') {
+        bodyColor = 'rgba(150,255,255,0.8)';
+        eyeColor = '#fff';
+    }
+    ctx.fillStyle = bodyColor;
     ctx.fill();
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 3;
@@ -856,7 +867,7 @@ function drawZombie(zombie) {
     ctx.beginPath();
     ctx.arc(x + ex, y + ey, zombie.size * 0.2, 0, Math.PI * 2);
     ctx.arc(x - ex, y - ey, zombie.size * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = '#ccc';
+    ctx.fillStyle = eyeColor;
     ctx.fill();
     const nx = Math.cos(angle) * zombie.size * 0.6;
     const ny = Math.sin(angle) * zombie.size * 0.6;
