@@ -154,6 +154,13 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         healer: { speed: 1, damage: 0 },
         ranged: { speed: 1, damage: 2 }
     }[minionType] || { speed: 1.2, damage: 2 };
+
+    // Different minion roles manifest as different creature types when
+    // summoned by a player. Wild zombies remain the default.
+    const kind = ownerId
+        ? ({ attack: 'zombie', healer: 'spirit', ranged: 'skeleton' }[minionType] || 'zombie')
+        : 'zombie';
+
     return {
         id: nextZombieId++,
         x,
@@ -176,7 +183,8 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         burn: 0,
         slow: 0,
         ownerId,
-        minionType
+        minionType,
+        kind
     };
 }
 
