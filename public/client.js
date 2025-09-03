@@ -618,6 +618,12 @@ canvas.addEventListener('mousedown', e => {
             if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; }
         }
     }
+    if (me.class === 'summoner') {
+        if (closestPlayer) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'player', targetId: closestPlayer.id }));
+        else if (closestBoar) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'boar', targetId: closestBoar.id }));
+        else if (closestZombie) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'zombie', targetId: closestZombie.id }));
+        else if (closestOgre) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'ogre', targetId: closestOgre.id }));
+    }
     if (closestPlayer) {
         socket.send(JSON.stringify({ type: 'hit-player', targetId: closestPlayer.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestBoar) {
@@ -919,7 +925,14 @@ function drawOgre(ogre) {
 
 function drawProjectile(p) {
     drawShadow(p.x, p.y, 16, 8);
-    ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
+    if (p.type === 'slow') {
+        ctx.fillStyle = 'blue';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
+    }
 }
 
 function drawGroundItem(item) {
@@ -1135,7 +1148,9 @@ window.addEventListener('keydown', e => {
                 socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
             }
         } else if (me.class === 'mage' && me.canSlow) {
-            socket.send(JSON.stringify({ type: 'cast-slow' }));
+            const targetX = mousePos.x + camera.x;
+            const targetY = mousePos.y + camera.y;
+            socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
         }
         e.preventDefault();
     }
