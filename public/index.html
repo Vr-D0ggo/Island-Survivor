@@ -21,6 +21,7 @@
             <div class="slot" id="hotbar-2">3</div>
             <div class="slot" id="hotbar-3">4</div>
         </div>
+        <div id="summoner-bar" class="hidden"></div>
         <div id="chat-container"><ul id="chat-messages"></ul><input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="100"></div>
         <div id="level-indicator">Level: 1</div>
     </div>
@@ -61,13 +62,51 @@
                 <div id="skill-knight" class="skill-node locked" data-skill="knight">Knight</div>
                 <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
             </div>
+            <div id="knight-skills" class="class-skills hidden">
+                <div id="skill-knight-damage" class="skill-node locked" data-skill="knight-damage">Sword Damage</div>
+                <div id="skill-knight-speed" class="skill-node locked" data-skill="knight-speed">Speed</div>
+                <div id="skill-knight-health" class="skill-node locked" data-skill="knight-health">Health</div>
+            </div>
+            <div id="summoner-skills" class="class-skills hidden">
+                <div id="skill-summoner-attack" class="skill-node locked" data-skill="summoner-attack">+1 Attack Minion</div>
+                <div id="skill-summoner-healer" class="skill-node locked" data-skill="summoner-healer">+1 Healer Minion</div>
+                <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
+            </div>
+            <div id="mage-skills" class="class-skills hidden">
+                <div id="skill-mage-mana" class="skill-node locked" data-skill="mage-mana">More Mana</div>
+                <div id="skill-mage-regen" class="skill-node locked" data-skill="mage-regen">Faster Mana Regen</div>
+                <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Spacebar)</div>
+            </div>
         </div>
     </div>
 
-    <div id="pre-spawn-screen">
+    <div id="controls-screen">
+        <h2>Controls</h2>
+        <ul id="controls-list">
+            <li>WASD - Move</li>
+            <li>Left Click - Attack/Interact</li>
+            <li>Right Click - Use/Place</li>
+            <li>E - Inventory</li>
+            <li>Q - Skill Tree</li>
+            <li>Enter - Chat</li>
+            <li>Space - Class Ability (e.g., Slow Spell)</li>
+        </ul>
+        <button id="controls-btn">Continue</button>
+    </div>
+
+    <div id="pre-spawn-screen" class="hidden">
         <h2>Choose your name</h2>
         <input type="text" id="name-input" maxlength="20">
         <button id="start-btn">Start</button>
+    </div>
+
+    <div id="class-screen" class="hidden">
+        <h2>Choose your class</h2>
+        <div class="class-options">
+            <button class="class-option" data-class="knight">Knight</button>
+            <button class="class-option" data-class="mage">Mage</button>
+            <button class="class-option" data-class="summoner">Summoner</button>
+        </div>
     </div>
 
     <div id="death-screen" class="hidden">

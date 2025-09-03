@@ -38,6 +38,7 @@ const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
+const ogreImg = new Image(); ogreImg.src = '/icons/Ork.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
 const bedImg = new Image(); bedImg.src = '/icons/Bed.png';
@@ -60,7 +61,8 @@ const ITEM_ICONS = {
     'Workbench': 'workbench.png',
     'Furnace': 'Oven.png',
     'Bed': 'Bed.png',
-    'Fire Staff': 'FireStaff.png'
+    'Fire Staff': 'FireStaff.png',
+    'Torch': 'FireBall.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -72,7 +74,8 @@ const RECIPES = {
     'Stone Pickaxe': { cost: { Wood: 2, Stone: 3 }, icon: ITEM_ICONS['Stone Pickaxe'] },
     'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] },
     'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] },
-    'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] }
+    'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] },
+    'Torch': { cost: { Wood: 3 }, icon: ITEM_ICONS['Torch'] }
 };
 
 // --- Input & UI State ---
@@ -93,13 +96,36 @@ const menuBtn = document.getElementById('menu-btn');
 const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
 const startBtn = document.getElementById('start-btn');
+const controlsScreen = document.getElementById('controls-screen');
+const controlsBtn = document.getElementById('controls-btn');
+const classScreen = document.getElementById('class-screen');
+const classButtons = document.querySelectorAll('.class-option');
 const levelIndicator = document.getElementById('level-indicator');
+const summonerBar = document.getElementById('summoner-bar');
 const skillTree = document.getElementById('skill-tree');
 const skillPointsElem = document.getElementById('skill-points');
 const rangeNode = document.getElementById('skill-range');
 const mageNode = document.getElementById('skill-mage');
 const knightNode = document.getElementById('skill-knight');
 const summonerNode = document.getElementById('skill-summoner');
+const knightSkillGroup = document.getElementById('knight-skills');
+const summonerSkillGroup = document.getElementById('summoner-skills');
+const mageSkillGroup = document.getElementById('mage-skills');
+const knightSkillNodes = [
+    document.getElementById('skill-knight-damage'),
+    document.getElementById('skill-knight-speed'),
+    document.getElementById('skill-knight-health')
+];
+const summonerSkillNodes = [
+    document.getElementById('skill-summoner-attack'),
+    document.getElementById('skill-summoner-healer'),
+    document.getElementById('skill-summoner-ranged')
+];
+const mageSkillNodes = [
+    document.getElementById('skill-mage-mana'),
+    document.getElementById('skill-mage-regen'),
+    document.getElementById('skill-mage-slow')
+];
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
@@ -107,9 +133,21 @@ let deathFade = 0;
 let deathFadeDir = 0;
 let preSpawn = true;
 let spectatorTarget = null;
+// Current minion type to spawn for summoners.
+let summonerSpawnType = 'attack';
 if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'respawn' })); };
 if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
-if (startBtn) startBtn.onclick = () => { preSpawn = false; preSpawnScreen.classList.add('hidden'); socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' })); };
+if (controlsBtn) controlsBtn.onclick = () => { controlsScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); };
+if (startBtn) startBtn.onclick = () => { preSpawnScreen.classList.add('hidden'); classScreen.classList.remove('hidden'); };
+classButtons.forEach(btn => {
+    btn.onclick = () => {
+        const cls = btn.dataset.class;
+        classScreen.classList.add('hidden');
+        preSpawn = false;
+        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' }));
+        socket.send(JSON.stringify({ type: 'set-class', class: cls }));
+    };
+});
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
@@ -177,9 +215,53 @@ function updateLevelUI() {
         node.classList.toggle('unlocked', unlocked);
         node.classList.toggle('locked', !(unlocked || available));
     });
+    if (knightSkillGroup) knightSkillGroup.classList.toggle('hidden', me.class !== 'knight');
+    if (summonerSkillGroup) summonerSkillGroup.classList.toggle('hidden', me.class !== 'summoner');
+    if (mageSkillGroup) mageSkillGroup.classList.toggle('hidden', me.class !== 'mage');
+    knightSkillNodes.forEach(node => {
+        const skill = node.dataset.skill;
+        const unlocked = me.knightSkills && me.knightSkills[skill];
+        const limitReached = me.knightSkills && Object.keys(me.knightSkills).length >= 2 && !unlocked;
+        const available = me.class === 'knight' && me.skillPoints > 0 && !unlocked && !limitReached;
+        node.classList.toggle('unlocked', unlocked);
+        node.classList.toggle('locked', !(unlocked || available));
+    });
+    summonerSkillNodes.forEach(node => {
+        const available = me.class === 'summoner' && me.skillPoints > 0;
+        node.classList.toggle('locked', !available);
+        node.classList.toggle('unlocked', available);
+    });
+    mageSkillNodes.forEach(node => {
+        const skill = node.dataset.skill;
+        const unlocked = me.mageSkills && me.mageSkills[skill];
+        const available = me.class === 'mage' && me.skillPoints > 0 && !unlocked;
+        node.classList.toggle('unlocked', unlocked);
+        node.classList.toggle('locked', !(unlocked || available));
+    });
+}
+
+function updateSummonerBar() {
+    const me = players[myPlayerId];
+    if (!summonerBar || !me || me.class !== 'summoner' || !me.summonerSkills) {
+        if (summonerBar) summonerBar.classList.add('hidden');
+        return;
+    }
+    const owned = zombies.filter(z => z.ownerId === myPlayerId && z.minionType === summonerSpawnType).length;
+    const max = me.summonerSkills[summonerSpawnType] || 0;
+    const remaining = Math.max(0, max - owned);
+    const label = summonerSpawnType.charAt(0).toUpperCase() + summonerSpawnType.slice(1);
+    summonerBar.textContent = `${label}: ${remaining} left`;
+    summonerBar.classList.remove('hidden');
 }
 
 function drawShadow(x, y, w, h) {
+    for (const s of Object.values(structures)) {
+        if (s.type === 'torch') {
+            const tx = s.x + (s.size || GRID_CELL_SIZE) / 2;
+            const ty = s.y + (s.size || GRID_CELL_SIZE) / 2;
+            if (Math.hypot(tx - x, ty - y) < 120) return;
+        }
+    }
     const cycleDuration = dayNight.DAY_DURATION + dayNight.NIGHT_DURATION;
     const cycleTime = dayNight.cycleTime % cycleDuration;
     let alpha = 0.2;
@@ -242,11 +324,19 @@ socket.onmessage = event => {
                     clientPlayer.burn = serverPlayer.burn;
                     clientPlayer.mana = serverPlayer.mana;
                     clientPlayer.maxMana = serverPlayer.maxMana;
+                    clientPlayer.manaRegen = serverPlayer.manaRegen || 0;
                     clientPlayer.level = serverPlayer.level;
                     clientPlayer.skillPoints = serverPlayer.skillPoints;
                     clientPlayer.skills = serverPlayer.skills || {};
                     clientPlayer.attackRange = serverPlayer.attackRange || 0;
                     clientPlayer.class = serverPlayer.class || null;
+                    clientPlayer.speed = serverPlayer.speed;
+                    clientPlayer.baseSpeed = serverPlayer.baseSpeed;
+                    clientPlayer.knightSkills = serverPlayer.knightSkills || {};
+                    clientPlayer.summonerSkills = serverPlayer.summonerSkills || { attack: 0, healer: 0, ranged: 0 };
+                    clientPlayer.mageSkills = serverPlayer.mageSkills || {};
+                    clientPlayer.swordDamage = serverPlayer.swordDamage || 0;
+                    clientPlayer.canSlow = serverPlayer.canSlow;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
@@ -270,6 +360,15 @@ socket.onmessage = event => {
         case 'inventory-update': const me = players[myPlayerId]; if (me) { me.inventory = data.inventory; me.hotbar = data.hotbar; if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } if (!furnaceScreen.classList.contains('hidden')) { updateFurnaceUI(); } updateHotbarUI(); } break;
         case 'item-pickup-notif': createFloatingText(`+${data.amount} ${data.item}`, players[myPlayerId].x, players[myPlayerId].y); break;
         case 'notification': showNotification(data.message); break;
+        case 'level-update': {
+            const mePlayer = players[myPlayerId];
+            if (mePlayer) {
+                mePlayer.level = data.level;
+                mePlayer.skillPoints = data.skillPoints;
+                updateLevelUI();
+            }
+            break;
+        }
         case 'boar-update': {
             const idx = boars.findIndex(b => b.id === data.boar.id);
             if (idx !== -1) boars[idx] = data.boar; else boars.push(data.boar);
@@ -296,7 +395,7 @@ socket.onmessage = event => {
             }
             if (deathScreen) deathScreen.classList.remove('hidden');
             break;
-        case 'chat-message': addChatMessage(data.sender, data.message); break;
+        case 'chat-message': addChatMessage(data.sender, data.message, data.color); break;
     }
 };
 
@@ -484,12 +583,19 @@ function playerMovement() {
     }
 }
 canvas.addEventListener('mousedown', e => {
-    if (!myPlayerId || !players[myPlayerId] || e.button !== 0) return;
+    if (!myPlayerId || !players[myPlayerId] || e.button !== 0 || preSpawn) return;
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
     const me = players[myPlayerId];
     const selectedItem = me.hotbar[selectedHotbarSlot];
+    let closestPlayer = null; let playerDist = Infinity;
+    for (const id in players) {
+        if (id === myPlayerId) continue;
+        const p = players[id];
+        const dist = Math.hypot(mouseX - p.x, mouseY - p.y);
+        if (dist < p.size && dist < playerDist) { playerDist = dist; closestPlayer = { id, data: p }; }
+    }
     let closestBoar = null; let boarDist = Infinity;
     for (const boar of boars) {
         const dist = Math.hypot(mouseX - boar.x, mouseY - boar.y);
@@ -500,6 +606,11 @@ canvas.addEventListener('mousedown', e => {
         const dist = Math.hypot(mouseX - zombie.x, mouseY - zombie.y);
         if (dist < zombie.size && dist < zombieDist) { zombieDist = dist; closestZombie = zombie; }
     }
+    let closestOgre = null; let ogreDist = Infinity;
+    for (const ogre of ogres) {
+        const dist = Math.hypot(mouseX - ogre.x, mouseY - ogre.y);
+        if (dist < ogre.size && dist < ogreDist) { ogreDist = dist; closestOgre = ogre; }
+    }
     let closestResource = null; let closestDist = Infinity;
     for (const resource of resources) {
         if (!resource.harvested) {
@@ -507,10 +618,20 @@ canvas.addEventListener('mousedown', e => {
             if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; }
         }
     }
-    if (closestBoar) {
+    if (me.class === 'summoner') {
+        if (closestPlayer) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'player', targetId: closestPlayer.id }));
+        else if (closestBoar) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'boar', targetId: closestBoar.id }));
+        else if (closestZombie) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'zombie', targetId: closestZombie.id }));
+        else if (closestOgre) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'ogre', targetId: closestOgre.id }));
+    }
+    if (closestPlayer) {
+        socket.send(JSON.stringify({ type: 'hit-player', targetId: closestPlayer.id, item: selectedItem ? selectedItem.item : null }));
+    } else if (closestBoar) {
         socket.send(JSON.stringify({ type: 'hit-boar', boarId: closestBoar.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestZombie) {
         socket.send(JSON.stringify({ type: 'hit-zombie', zombieId: closestZombie.id, item: selectedItem ? selectedItem.item : null }));
+    } else if (closestOgre) {
+        socket.send(JSON.stringify({ type: 'hit-ogre', ogreId: closestOgre.id, item: selectedItem ? selectedItem.item : null }));
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
     } else {
@@ -629,6 +750,20 @@ function drawPlayer(player, isMe) {
         ctx.fillStyle = 'green';
         ctx.fillRect(x - player.size, y - player.size - 10, (player.hp / player.maxHp) * player.size * 2, 6);
     }
+    if (player.poison && player.poison > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = 'yellow';
+        ctx.beginPath();
+        ctx.arc(x, y, player.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = 'green';
+        ctx.beginPath();
+        ctx.arc(x, y, player.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
     if (player.burn && player.burn > 0) {
         ctx.save();
         ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
@@ -686,20 +821,21 @@ function drawResource(resource) {
 function drawBoar(boar) {
     const size = boar.size * 2;
     drawShadow(boar.x, boar.y, size, size / 2);
+    const angle = Math.atan2(boar.vy || 0, boar.vx || 0);
+    ctx.save();
+    ctx.translate(boar.x, boar.y);
+    if (boar.vx !== 0 || boar.vy !== 0) ctx.rotate(angle);
+    ctx.drawImage(boarImg, -size / 2, -size / 2, size, size);
     if (boar.color) {
-        ctx.save();
-        ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
         ctx.globalCompositeOperation = 'source-atop';
         ctx.fillStyle = boar.color;
         ctx.globalAlpha = 0.3;
         ctx.beginPath();
-        ctx.arc(boar.x, boar.y, size / 2, 0, Math.PI * 2);
+        ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
-        ctx.restore();
-    } else {
-        ctx.drawImage(boarImg, boar.x - size / 2, boar.y - size / 2, size, size);
     }
+    ctx.restore();
     if (boar.hp < boar.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(boar.x - boar.size, boar.y - boar.size - 10, boar.size * 2, 6);
@@ -714,7 +850,18 @@ function drawZombie(zombie) {
     drawShadow(x, y, zombie.size * 2, zombie.size);
     ctx.beginPath();
     ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
-    ctx.fillStyle = '#6b8e23';
+
+    // Pick colors based on the creature type for visual distinction.
+    let bodyColor = '#6b8e23'; // default zombie
+    let eyeColor = '#ccc';
+    if (zombie.kind === 'skeleton') {
+        bodyColor = '#ddd';
+        eyeColor = '#000';
+    } else if (zombie.kind === 'spirit') {
+        bodyColor = 'rgba(150,255,255,0.8)';
+        eyeColor = '#fff';
+    }
+    ctx.fillStyle = bodyColor;
     ctx.fill();
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 3;
@@ -726,7 +873,7 @@ function drawZombie(zombie) {
     ctx.beginPath();
     ctx.arc(x + ex, y + ey, zombie.size * 0.2, 0, Math.PI * 2);
     ctx.arc(x - ex, y - ey, zombie.size * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = '#ccc';
+    ctx.fillStyle = eyeColor;
     ctx.fill();
     const nx = Math.cos(angle) * zombie.size * 0.6;
     const ny = Math.sin(angle) * zombie.size * 0.6;
@@ -753,14 +900,12 @@ function drawZombie(zombie) {
 
 function drawOgre(ogre) {
     drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
-    ctx.beginPath();
-    ctx.arc(ogre.x, ogre.y, ogre.size, 0, Math.PI * 2);
-    ctx.fillStyle = '#800080';
-    ctx.fill();
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.drawImage(fireStaffImg, ogre.x - 16, ogre.y - 16, 32, 32);
+    const angle = ogre.facing || Math.atan2(ogre.vy || 0, ogre.vx || 0);
+    ctx.save();
+    ctx.translate(ogre.x, ogre.y);
+    ctx.rotate(angle);
+    ctx.drawImage(ogreImg, -ogre.size, -ogre.size, ogre.size * 2, ogre.size * 2);
+    ctx.restore();
     if (ogre.burn && ogre.burn > 0) {
         ctx.save();
         ctx.globalAlpha = 0.4 + 0.4 * Math.sin(Date.now() / 100);
@@ -780,7 +925,14 @@ function drawOgre(ogre) {
 
 function drawProjectile(p) {
     drawShadow(p.x, p.y, 16, 8);
-    ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
+    if (p.type === 'slow') {
+        ctx.fillStyle = 'blue';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
+    }
 }
 
 function drawGroundItem(item) {
@@ -810,6 +962,17 @@ function drawStructure(structure) {
         ctx.drawImage(ovenImg, structure.x, structure.y, size, size);
     } else if (structure.type === 'bed') {
         ctx.drawImage(bedImg, structure.x, structure.y, size, size);
+    } else if (structure.type === 'torch') {
+        const cx = structure.x + size / 2;
+        const cy = structure.y + size / 2;
+        const radius = size / 4;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        grad.addColorStop(0, '#ffff99');
+        grad.addColorStop(1, '#ff9900');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
     }
 }
 function render() {
@@ -849,6 +1012,43 @@ function render() {
     ctx.restore();
     ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (darkness > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        Object.values(structures).forEach(s => {
+            if (s.type === 'torch') {
+                const tx = s.x - camera.x + (s.size || GRID_CELL_SIZE) / 2;
+                const ty = s.y - camera.y + (s.size || GRID_CELL_SIZE) / 2;
+                const radius = 150;
+                const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, radius);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+        ctx.restore();
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        Object.values(structures).forEach(s => {
+            if (s.type === 'torch') {
+                const tx = s.x - camera.x + (s.size || GRID_CELL_SIZE) / 2;
+                const ty = s.y - camera.y + (s.size || GRID_CELL_SIZE) / 2;
+                const radius = 150;
+                const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, radius);
+                grad.addColorStop(0, 'rgba(255, 220, 100, 0.8)');
+                grad.addColorStop(1, 'rgba(255, 220, 100, 0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+        ctx.restore();
+    }
     if (deathFadeDir !== 0) {
         deathFade += 0.02 * deathFadeDir;
         if (deathFade >= 1) { deathFade = 1; deathFadeDir = -1; }
@@ -866,7 +1066,7 @@ function gameLoop() {
         const me = players[myPlayerId];
         if (preSpawn) {
             if (!spectatorTarget || spectatorTarget.hp <= 0) {
-                const options = [...boars, ...zombies];
+                const options = [...boars, ...zombies, ...ogres];
                 spectatorTarget = options.length ? options[Math.floor(Math.random() * options.length)] : me;
             }
             const target = spectatorTarget || me;
@@ -885,6 +1085,7 @@ function gameLoop() {
                 }
             }
         }
+        updateSummonerBar();
     }
     render();
     requestAnimationFrame(gameLoop);
@@ -898,7 +1099,13 @@ furnaceCookBtn.addEventListener('click', () => {
     socket.send(JSON.stringify({ type: 'furnace-cook', input: furnaceInput.value, fuel: furnaceFuel.value }));
     furnaceScreen.classList.add('hidden');
 });
-function addChatMessage(sender, message){ const li = document.createElement('li'); li.textContent = `${sender.substring(0,6)}: ${message}`; chatMessages.appendChild(li); chatMessages.scrollTop = chatMessages.scrollHeight; }
+function addChatMessage(sender, message, color){
+    const li = document.createElement('li');
+    li.textContent = `${sender}: ${message}`;
+    if (color) li.style.color = color;
+    chatMessages.appendChild(li);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
 window.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatInput) { e.preventDefault(); chatInput.focus(); } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyE' && document.activeElement !== chatInput) { inventoryScreen.classList.toggle('hidden'); if (!inventoryScreen.classList.contains('hidden')) { updateInventoryUI(); updateCraftingUI(); } } });
 window.addEventListener('keydown', e => { if (e.code === 'KeyQ' && document.activeElement !== chatInput) { skillTree.classList.toggle('hidden'); updateLevelUI(); } });
@@ -913,9 +1120,52 @@ window.addEventListener('keydown', e => {
         }
     }
 });
+// Summoners can cycle the minion type they will spawn.
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'KeyV') {
+        const types = ['attack', 'healer', 'ranged'];
+        const idx = types.indexOf(summonerSpawnType);
+        summonerSpawnType = types[(idx + 1) % types.length];
+        updateSummonerBar();
+    }
+});
+window.addEventListener('wheel', e => {
+    if (document.activeElement !== chatInput && players[myPlayerId]?.class === 'summoner') {
+        const types = ['attack', 'healer', 'ranged'];
+        let idx = types.indexOf(summonerSpawnType);
+        idx = (idx + (e.deltaY > 0 ? 1 : -1) + types.length) % types.length;
+        summonerSpawnType = types[idx];
+        updateSummonerBar();
+        e.preventDefault();
+    }
+}, { passive: false });
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'Space' && !e.repeat) {
+        const me = players[myPlayerId];
+        if (!me) return;
+        if (me.class === 'summoner') {
+            if (me.mana >= 100) {
+                socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+            }
+        } else if (me.class === 'mage' && me.canSlow) {
+            const targetX = mousePos.x + camera.x;
+            const targetY = mousePos.y + camera.y;
+            socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
+        }
+        e.preventDefault();
+    }
+});
 window.addEventListener('keydown', e => {
     if (document.activeElement !== chatInput && e.code === 'KeyF') {
         socket.send(JSON.stringify({ type: 'consume-item', hotbarIndex: selectedHotbarSlot }));
+    }
+});
+window.addEventListener('keydown', e => {
+    if (document.activeElement !== chatInput && e.code === 'KeyX') {
+        const me = players[myPlayerId];
+        if (me && me.hotbar && me.hotbar[selectedHotbarSlot]) {
+            socket.send(JSON.stringify({ type: 'drop-item', fromType: 'hotbar', index: selectedHotbarSlot }));
+        }
     }
 });
 window.addEventListener('keydown', e => {
@@ -938,6 +1188,25 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
         const skill = node.dataset.skill;
         if (me && me.skillPoints > 0 && me.skills && me.skills.range && !me.class) {
             socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+        }
+    });
+});
+[...knightSkillNodes, ...summonerSkillNodes, ...mageSkillNodes].forEach(node => {
+    if (!node) return;
+    node.addEventListener('click', () => {
+        const me = players[myPlayerId];
+        const skill = node.dataset.skill;
+        if (!me || me.skillPoints <= 0) return;
+        if (me.class === 'knight') {
+            if (!me.knightSkills || !me.knightSkills[skill]) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            }
+        } else if (me.class === 'summoner') {
+            socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+        } else if (me.class === 'mage') {
+            if (!me.mageSkills || !me.mageSkills[skill]) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            }
         }
     });
 });
