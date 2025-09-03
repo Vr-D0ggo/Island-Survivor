@@ -1158,7 +1158,10 @@ function gameLoop() {
                         if (dist < 200 && zombie.cooldown <= 0) {
                             const angle = Math.atan2(target.y - zombie.y, target.x - zombie.x);
                             const speed = 4;
-                            projectiles.push({ id: nextProjectileId++, x: zombie.x, y: zombie.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: zombie.ownerId });
+                            const spawnDist = zombie.size + 5;
+                            const sx = zombie.x + Math.cos(angle) * spawnDist;
+                            const sy = zombie.y + Math.sin(angle) * spawnDist;
+                            projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: zombie.ownerId });
                             zombie.cooldown = 60;
                         }
                     } else {
@@ -1263,7 +1266,10 @@ function gameLoop() {
                     const angle = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
                     ogre.facing = angle;
                     const speed = 4;
-                    projectiles.push({ id: nextProjectileId++, x: ogre.x, y: ogre.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+                    const spawnDist = ogre.size + 5;
+                    const sx = ogre.x + Math.cos(angle) * spawnDist;
+                    const sy = ogre.y + Math.sin(angle) * spawnDist;
+                    projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
                     ogre.fireCooldown = 90;
                 }
                 if (dist < ogre.size + (targetData.entity.size || 10) + 10 && ogre.cooldown <= 0) {
