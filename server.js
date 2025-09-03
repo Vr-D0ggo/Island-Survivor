@@ -184,7 +184,8 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         slow: 0,
         ownerId,
         minionType,
-        kind
+        kind,
+        commanded: false
     };
 }
 
@@ -385,6 +386,7 @@ wss.on('connection', ws => {
         heldIndex: 0,
         lastHitBy: null,
         burn: 0,
+        slow: 0,
         mana: 100,
         maxMana: 100,
         manaRegen: 0,
@@ -647,12 +649,26 @@ wss.on('connection', ws => {
             case 'cast-slow': {
                 if (player.class === 'mage' && player.canSlow && player.mana >= 30) {
                     player.mana -= 30;
-                    const radius = 100;
-                    [...boars, ...zombies, ...ogres].forEach(e => {
-                        if (getDistance(player, e) < radius) {
-                            e.slow = 60;
+                    const { targetX, targetY } = data;
+                    const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                    const speed = 4;
+                    const spawnDist = player.size + 20;
+                    const sx = player.x + Math.cos(angle) * spawnDist;
+                    const sy = player.y + Math.sin(angle) * spawnDist;
+                    projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId, type: 'slow' });
+                }
+                break;
+            }
+            case 'command-minions': {
+                const { targetType, targetId } = data;
+                if (player.class === 'summoner' && !(targetType === 'player' && targetId === playerId)) {
+                    for (const z of zombies) {
+                        if (z.ownerId === playerId) {
+                            z.aggressive = true;
+                            z.target = { type: targetType, id: targetId };
+                            z.commanded = true;
                         }
-                    });
+                    }
                 }
                 break;
             }
@@ -870,6 +886,7 @@ function gameLoop() {
         if (dayNight.isDay) {
             boars.forEach(b => (b.hp = b.maxHp));
             zombies.forEach(z => {
+                if (z.ownerId) return;
                 z.x = z.homeX;
                 z.y = z.homeY;
                 z.aggressive = false;
@@ -891,7 +908,9 @@ function gameLoop() {
             if (!p.active) continue;
             if (proj.owner && proj.owner === id) continue;
             if (getDistance(p, proj) < p.size) {
-                if (!p.invulnerable || p.invulnerable <= 0) {
+                if (proj.type === 'slow') {
+                    p.slow = 60;
+                } else if (!p.invulnerable || p.invulnerable <= 0) {
                     p.hp = Math.max(0, p.hp - 2);
                     p.burn = 120;
                     p.lastHitBy = proj.owner || 'ogre';
@@ -910,12 +929,16 @@ function gameLoop() {
         if (!hit) {
             for (const boar of boars) {
                 if (getDistance(boar, proj) < boar.size) {
-                    boar.hp = Math.max(0, boar.hp - 2);
-                    boar.burn = 120;
-                    boar.aggressive = true;
-                    const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,boar)<getDistance(a,boar)?b:a) : null;
-                    if (nearestOgre) boar.target = { type: 'ogre', id: nearestOgre.id };
-                    broadcast({ type: 'boar-update', boar });
+                    if (proj.type === 'slow') {
+                        boar.slow = 60;
+                    } else {
+                        boar.hp = Math.max(0, boar.hp - 2);
+                        boar.burn = 120;
+                        boar.aggressive = true;
+                        const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,boar)<getDistance(a,boar)?b:a) : null;
+                        if (nearestOgre) boar.target = { type: 'ogre', id: nearestOgre.id };
+                        broadcast({ type: 'boar-update', boar });
+                    }
                     hit = true;
                     break;
                 }
@@ -924,12 +947,16 @@ function gameLoop() {
         if (!hit) {
             for (const zombie of zombies) {
                 if (getDistance(zombie, proj) < zombie.size) {
-                    zombie.hp = Math.max(0, zombie.hp - 2);
-                    zombie.burn = 120;
-                    zombie.aggressive = true;
-                    const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,zombie)<getDistance(a,zombie)?b:a) : null;
-                    if (nearestOgre) zombie.target = { type: 'ogre', id: nearestOgre.id };
-                    broadcast({ type: 'zombie-update', zombie });
+                    if (proj.type === 'slow') {
+                        zombie.slow = 60;
+                    } else {
+                        zombie.hp = Math.max(0, zombie.hp - 2);
+                        zombie.burn = 120;
+                        zombie.aggressive = true;
+                        const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,zombie)<getDistance(a,zombie)?b:a) : null;
+                        if (nearestOgre) zombie.target = { type: 'ogre', id: nearestOgre.id };
+                        broadcast({ type: 'zombie-update', zombie });
+                    }
                     hit = true;
                     break;
                 }
@@ -938,10 +965,14 @@ function gameLoop() {
         if (!hit) {
             for (const ogre of ogres) {
                 if (getDistance(ogre, proj) < ogre.size) {
-                    ogre.hp = Math.max(0, ogre.hp - 2);
-                    ogre.burn = 120;
-                    if (proj.owner) ogre.target = { type: 'player', id: proj.owner };
-                    broadcast({ type: 'ogre-update', ogre });
+                    if (proj.type === 'slow') {
+                        ogre.slow = 60;
+                    } else {
+                        ogre.hp = Math.max(0, ogre.hp - 2);
+                        ogre.burn = 120;
+                        if (proj.owner) ogre.target = { type: 'player', id: proj.owner };
+                        broadcast({ type: 'ogre-update', ogre });
+                    }
                     hit = true;
                     break;
                 }
@@ -951,11 +982,13 @@ function gameLoop() {
             for (const r of resources) {
                 if (r.harvested) continue;
                 if (getDistance(r, proj) < r.size / 2) {
-                    r.hp -= 2;
-                    if (r.hp <= 0) {
-                        r.harvested = true;
+                    if (proj.type !== 'slow') {
+                        r.hp -= 2;
+                        if (r.hp <= 0) {
+                            r.harvested = true;
+                        }
+                        broadcast({ type: 'resource-update', resource: r });
                     }
-                    broadcast({ type: 'resource-update', resource: r });
                     hit = true;
                     break;
                 }
@@ -1057,7 +1090,7 @@ function gameLoop() {
         zombie.speed = zombie.baseSpeed;
         if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
-        if (dayNight.isDay && !isInShadow(zombie)) {
+        if (dayNight.isDay && !isInShadow(zombie) && !zombie.ownerId) {
             zombie.burn = Math.min(120, (zombie.burn || 0) + 1);
             if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
         } else if (zombie.burn > 0) {
@@ -1086,7 +1119,7 @@ function gameLoop() {
             let detected = false;
             const potential = [];
             for (const id in players) {
-                if (players[id].active) potential.push({ type: 'player', id, entity: players[id] });
+                if (players[id].active && id !== zombie.ownerId) potential.push({ type: 'player', id, entity: players[id] });
             }
             for (const o of ogres) potential.push({ type: 'ogre', id: o.id, entity: o });
             for (const t of potential) {
@@ -1112,10 +1145,12 @@ function gameLoop() {
             let target = null;
             if (zombie.target.type === 'player') target = players[zombie.target.id];
             else if (zombie.target.type === 'ogre') target = ogres.find(o => o.id === zombie.target.id);
-            if (!target) { zombie.aggressive = false; zombie.target = null; }
+            else if (zombie.target.type === 'boar') target = boars.find(b => b.id === zombie.target.id);
+            else if (zombie.target.type === 'zombie') target = zombies.find(z => z.id === zombie.target.id);
+            if (!target) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; }
             else {
                 const dist = getDistance(zombie, target);
-                if (dist > 250) { zombie.aggressive = false; zombie.target = null; }
+                if (!zombie.commanded && dist > 250) { zombie.aggressive = false; zombie.target = null; }
                 else {
                     moveToward(zombie, target);
                     zombie.angle = Math.atan2(zombie.vy, zombie.vx);
@@ -1139,7 +1174,9 @@ function gameLoop() {
                                         ogres = ogres.filter(o => o.id !== target.id);
                                         groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: target.x, y: target.y });
                                     }
-                                    broadcast({ type: 'ogre-update', ogre: target });
+                                    if (zombie.target.type === 'ogre') broadcast({ type: 'ogre-update', ogre: target });
+                                    else if (zombie.target.type === 'boar') broadcast({ type: 'boar-update', boar: target });
+                                    else if (zombie.target.type === 'zombie') broadcast({ type: 'zombie-update', zombie: target });
                                 }
                             }
                             zombie.cooldown = 60;
@@ -1275,6 +1312,8 @@ function gameLoop() {
     for (const id in players) {
         const p = players[id];
         if (!p.active) continue;
+        p.speed = p.baseSpeed;
+        if (p.slow > 0) { p.slow--; p.speed = p.baseSpeed * 0.5; }
         if (p.burn && p.burn > 0) {
             p.burn--;
             if (p.burn % 30 === 0 && (!p.invulnerable || p.invulnerable <= 0)) {
