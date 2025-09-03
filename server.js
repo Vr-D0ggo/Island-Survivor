@@ -226,6 +226,12 @@ function sendLevelUpdate(ws, player) {
 function levelUp(player, ws) {
     player.level = (player.level || 1) + 1;
     player.skillPoints = (player.skillPoints || 0) + 1;
+    if (player.class === 'mage') {
+        player.maxMana += 20;
+        player.mana += 20;
+        player.manaRegen = (player.manaRegen || 0) + (0.5 / 60);
+        player.canSlow = true;
+    }
     sendLevelUpdate(ws, player);
 }
 
@@ -385,6 +391,7 @@ wss.on('connection', ws => {
         knightSkills: {},
         summonerSkills: { attack: 0, healer: 0, ranged: 0 },
         mageSkills: {},
+        canSlow: false,
         swordDamage: 0,
         attackRange: 0,
         class: null,
