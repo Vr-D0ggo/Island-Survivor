@@ -125,12 +125,14 @@ const knightSkillNodes = [
     document.getElementById('skill-knight-health'),
     document.getElementById('skill-knight-bow-range'),
     document.getElementById('skill-knight-bow-damage'),
-    document.getElementById('skill-knight-shield')
+    document.getElementById('skill-knight-shield'),
+    document.getElementById('skill-knight-whirlwind')
 ];
 const knightSkillPrereqs = {
     'knight-bow-range': 'knight-damage',
     'knight-bow-damage': 'knight-bow-range',
-    'knight-shield': 'knight-speed'
+    'knight-shield': 'knight-speed',
+    'knight-whirlwind': 'knight-damage'
 };
 const summonerSkillNodes = [
     document.getElementById('skill-summoner-attack'),
@@ -142,8 +144,27 @@ const mageSkillNodes = [
     document.getElementById('skill-mage-regen'),
     document.getElementById('skill-mage-slow'),
     document.getElementById('skill-mage-slow-extend'),
-    document.getElementById('skill-mage-bind')
+    document.getElementById('skill-mage-bind'),
+    document.getElementById('skill-mage-missile')
 ];
+const mageSkillPrereqs = {
+    'mage-slow-extend': 'mage-slow',
+    'mage-bind': 'mage-slow-extend',
+    'mage-missile': 'mage-mana'
+};
+
+function orderSkillGroup(group, prereqs) {
+    const nodes = Array.from(group.children);
+    const depth = skill => {
+        let d = 0; let s = skill;
+        while (prereqs[s]) { d++; s = prereqs[s]; }
+        return d;
+    };
+    nodes.sort((a, b) => depth(a.dataset.skill) - depth(b.dataset.skill));
+    nodes.forEach(n => group.appendChild(n));
+}
+if (knightSkillGroup) orderSkillGroup(knightSkillGroup, knightSkillPrereqs);
+if (mageSkillGroup) orderSkillGroup(mageSkillGroup, mageSkillPrereqs);
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
@@ -278,17 +299,44 @@ function updateAbilityIndicator() {
         if (abilityIndicator) abilityIndicator.classList.add('hidden');
         return;
     }
-    if (me.class === 'mage' && me.canSlow) {
-        const label = selectedMageSpell === 'bind' ? 'Bind' : 'Slow';
-        abilityIndicator.textContent = `Spell: ${label}`;
+    if (me.class === 'mage' && (me.canSlow || me.canBind || me.canMissile)) {
+        const spells = [];
+        if (me.canSlow) spells.push('slow');
+        if (me.canBind) spells.push('bind');
+        if (me.canMissile) spells.push('missile');
+        if (!spells.includes(selectedMageSpell)) selectedMageSpell = spells[0];
+        const labelMap = { slow: 'Slow', bind: 'Bind', missile: 'Missile' };
+        abilityIndicator.textContent = `Spell: ${labelMap[selectedMageSpell]}`;
         abilityIndicator.classList.remove('hidden');
-    } else if (me.class === 'knight' && me.knightSkills && me.knightSkills['knight-shield']) {
-        const label = selectedKnightAbility === 'shield' ? 'Shield' : 'Sword';
-        abilityIndicator.textContent = `Ability: ${label}`;
+    } else if (me.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
+        const abilities = ['sword'];
+        if (me.knightSkills['knight-shield']) abilities.push('shield');
+        if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
+        if (!abilities.includes(selectedKnightAbility)) selectedKnightAbility = abilities[0];
+        const labelMap = { sword: 'Sword', shield: 'Shield', whirlwind: 'Whirlwind' };
+        abilityIndicator.textContent = `Ability: ${labelMap[selectedKnightAbility]}`;
         abilityIndicator.classList.remove('hidden');
     } else {
         abilityIndicator.classList.add('hidden');
     }
+}
+
+function getMouseTarget() {
+    const mx = mousePos.x + camera.x;
+    const my = mousePos.y + camera.y;
+    let target = null; let dist = Infinity;
+    const check = (entity, type, id) => {
+        const size = entity.size || 10;
+        const d = Math.hypot(mx - entity.x, my - entity.y);
+        if (d < size && d < dist) { dist = d; target = { type, id }; }
+    };
+    for (const [id, p] of Object.entries(players)) {
+        if (id !== myPlayerId && p.active) check(p, 'player', id);
+    }
+    for (const boar of boars) check(boar, 'boar', boar.id);
+    for (const zombie of zombies) check(zombie, 'zombie', zombie.id);
+    for (const ogre of ogres) check(ogre, 'ogre', ogre.id);
+    return target;
 }
 
 function drawShadow(x, y, w, h) {
@@ -377,7 +425,9 @@ socket.onmessage = event => {
                     clientPlayer.bowDamage = serverPlayer.bowDamage || 0;
                     clientPlayer.canSlow = serverPlayer.canSlow;
                     clientPlayer.canBind = serverPlayer.canBind;
+                    clientPlayer.canMissile = serverPlayer.canMissile;
                     clientPlayer.dashCooldown = serverPlayer.dashCooldown || 0;
+                    clientPlayer.whirlwindCooldown = serverPlayer.whirlwindCooldown || 0;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
@@ -989,6 +1039,8 @@ function drawProjectile(p) {
         ctx.fill();
     } else if (p.type === 'arrow') {
         ctx.drawImage(arrowImg, p.x - 8, p.y - 8, 16, 16);
+    } else if (p.type === 'missile') {
+        ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
     } else {
         ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
     }
@@ -1200,16 +1252,20 @@ window.addEventListener('wheel', e => {
             summonerSpawnType = types[idx];
             updateSummonerBar();
             e.preventDefault();
-        } else if (me?.class === 'mage' && me.canSlow) {
-            const spells = ['slow'];
+        } else if (me?.class === 'mage' && (me.canSlow || me.canBind || me.canMissile)) {
+            const spells = [];
+            if (me.canSlow) spells.push('slow');
             if (me.canBind) spells.push('bind');
+            if (me.canMissile) spells.push('missile');
             let idx = spells.indexOf(selectedMageSpell);
             idx = (idx + (e.deltaY > 0 ? 1 : -1) + spells.length) % spells.length;
             selectedMageSpell = spells[idx];
             updateAbilityIndicator();
             e.preventDefault();
-        } else if (me?.class === 'knight' && me.knightSkills && me.knightSkills['knight-shield']) {
-            const abilities = ['sword', 'shield'];
+        } else if (me?.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
+            const abilities = ['sword'];
+            if (me.knightSkills['knight-shield']) abilities.push('shield');
+            if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
             let idx = abilities.indexOf(selectedKnightAbility);
             idx = (idx + (e.deltaY > 0 ? 1 : -1) + abilities.length) % abilities.length;
             selectedKnightAbility = abilities[idx];
@@ -1234,11 +1290,18 @@ window.addEventListener('keydown', e => {
                     socket.send(JSON.stringify({ type: 'cast-bind', targetX, targetY }));
                 } else if (selectedMageSpell === 'slow' && me.canSlow) {
                     socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
+                } else if (selectedMageSpell === 'missile' && me.canMissile && me.mana >= 75) {
+                    const t = getMouseTarget();
+                    if (t) socket.send(JSON.stringify({ type: 'cast-missile', targetType: t.type, targetId: t.id }));
                 }
-            } else if (me.class === 'knight' && me.knightSkills && me.knightSkills['knight-shield'] && selectedKnightAbility === 'shield') {
-                const targetX = mousePos.x + camera.x;
-                const targetY = mousePos.y + camera.y;
-                socket.send(JSON.stringify({ type: 'shield-dash', targetX, targetY }));
+            } else if (me.class === 'knight' && me.knightSkills) {
+                if (selectedKnightAbility === 'shield' && me.knightSkills['knight-shield']) {
+                    const targetX = mousePos.x + camera.x;
+                    const targetY = mousePos.y + camera.y;
+                    socket.send(JSON.stringify({ type: 'shield-dash', targetX, targetY }));
+                } else if (selectedKnightAbility === 'whirlwind' && me.knightSkills['knight-whirlwind'] && (!me.whirlwindCooldown || me.whirlwindCooldown <= 0)) {
+                    socket.send(JSON.stringify({ type: 'knight-whirlwind' }));
+                }
             }
             e.preventDefault();
         }
@@ -1297,7 +1360,10 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
             socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
         } else if (me.class === 'mage') {
             if (!me.mageSkills || !me.mageSkills[skill]) {
-                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+                const prereq = mageSkillPrereqs[skill];
+                if (!prereq || (me.mageSkills && me.mageSkills[prereq])) {
+                    socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+                }
             }
         }
     });
