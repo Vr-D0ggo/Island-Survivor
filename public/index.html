@@ -22,6 +22,7 @@
             <div class="slot" id="hotbar-3">4</div>
         </div>
         <div id="summoner-bar" class="hidden"></div>
+        <div id="ability-indicator" class="hidden"></div>
         <div id="chat-container"><ul id="chat-messages"></ul><input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="100"></div>
         <div id="level-indicator">Level: 1</div>
     </div>
@@ -63,9 +64,9 @@
                     <div id="mage-skills" class="class-skills hidden">
                         <div id="skill-mage-mana" class="skill-node locked" data-skill="mage-mana">More Mana</div>
                         <div id="skill-mage-regen" class="skill-node locked" data-skill="mage-regen">Faster Mana Regen</div>
-                        <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Spacebar)</div>
+                        <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Space)</div>
                         <div id="skill-mage-slow-extend" class="skill-node locked hidden" data-skill="mage-slow-extend">Extend Slow to 10s</div>
-                        <div id="skill-mage-bind" class="skill-node locked hidden" data-skill="mage-bind">Binding Spell (B)</div>
+                        <div id="skill-mage-bind" class="skill-node locked hidden" data-skill="mage-bind">Binding Spell (Space)</div>
                     </div>
                 </div>
                 <div class="class-column">
@@ -76,7 +77,7 @@
                         <div id="skill-knight-health" class="skill-node locked" data-skill="knight-health">Health</div>
                         <div id="skill-knight-bow-range" class="skill-node locked hidden" data-skill="knight-bow-range">Bow Range</div>
                         <div id="skill-knight-bow-damage" class="skill-node locked hidden" data-skill="knight-bow-damage">Bow Damage</div>
-                        <div id="skill-knight-whirlwind" class="skill-node locked hidden" data-skill="knight-whirlwind">Whirlwind (Space)</div>
+                        <div id="skill-knight-shield" class="skill-node locked hidden" data-skill="knight-shield">Shield Dash (Space)</div>
                     </div>
                 </div>
                 <div class="class-column">
@@ -100,8 +101,8 @@
             <li>E - Inventory</li>
             <li>Q - Skill Tree</li>
             <li>Enter - Chat</li>
-            <li>Space - Class Ability (e.g., Slow Spell)</li>
-            <li>B - Binding Spell</li>
+            <li>Space - Class Ability</li>
+            <li>Scroll - Change Ability/Spell</li>
         </ul>
         <button id="controls-btn">Continue</button>
     </div>

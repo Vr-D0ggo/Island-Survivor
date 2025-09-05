@@ -30,7 +30,8 @@ let zombies = [];
 let ogres = [];
 let groundItems = [];
 let projectiles = [];
-let whirlwinds = [];
+let selectedMageSpell = 'slow';
+let selectedKnightAbility = 'sword';
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -108,6 +109,7 @@ const classScreen = document.getElementById('class-screen');
 const classButtons = document.querySelectorAll('.class-option');
 const levelIndicator = document.getElementById('level-indicator');
 const summonerBar = document.getElementById('summoner-bar');
+const abilityIndicator = document.getElementById('ability-indicator');
 const skillTree = document.getElementById('skill-tree');
 const skillPointsElem = document.getElementById('skill-points');
 const rangeNode = document.getElementById('skill-range');
@@ -123,12 +125,12 @@ const knightSkillNodes = [
     document.getElementById('skill-knight-health'),
     document.getElementById('skill-knight-bow-range'),
     document.getElementById('skill-knight-bow-damage'),
-    document.getElementById('skill-knight-whirlwind')
+    document.getElementById('skill-knight-shield')
 ];
 const knightSkillPrereqs = {
     'knight-bow-range': 'knight-damage',
     'knight-bow-damage': 'knight-bow-range',
-    'knight-whirlwind': 'knight-speed'
+    'knight-shield': 'knight-speed'
 };
 const summonerSkillNodes = [
     document.getElementById('skill-summoner-attack'),
@@ -275,6 +277,25 @@ function updateSummonerBar() {
     summonerBar.classList.remove('hidden');
 }
 
+function updateAbilityIndicator() {
+    const me = players[myPlayerId];
+    if (!abilityIndicator || !me) {
+        if (abilityIndicator) abilityIndicator.classList.add('hidden');
+        return;
+    }
+    if (me.class === 'mage' && me.canSlow) {
+        const label = selectedMageSpell === 'bind' ? 'Bind' : 'Slow';
+        abilityIndicator.textContent = `Spell: ${label}`;
+        abilityIndicator.classList.remove('hidden');
+    } else if (me.class === 'knight' && me.knightSkills && me.knightSkills['knight-shield']) {
+        const label = selectedKnightAbility === 'shield' ? 'Shield' : 'Sword';
+        abilityIndicator.textContent = `Ability: ${label}`;
+        abilityIndicator.classList.remove('hidden');
+    } else {
+        abilityIndicator.classList.add('hidden');
+    }
+}
+
 function drawShadow(x, y, w, h) {
     for (const s of Object.values(structures)) {
         if (s.type === 'torch') {
@@ -360,9 +381,12 @@ socket.onmessage = event => {
                     clientPlayer.bowRange = serverPlayer.bowRange || 0;
                     clientPlayer.bowDamage = serverPlayer.bowDamage || 0;
                     clientPlayer.canSlow = serverPlayer.canSlow;
+                    clientPlayer.canBind = serverPlayer.canBind;
+                    clientPlayer.dashCooldown = serverPlayer.dashCooldown || 0;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
+                        updateAbilityIndicator();
                     } else {
                         clientPlayer.targetX = serverPlayer.x;
                         clientPlayer.targetY = serverPlayer.y;
@@ -418,7 +442,6 @@ socket.onmessage = event => {
             }
             if (deathScreen) deathScreen.classList.remove('hidden');
             break;
-        case 'whirlwind': whirlwinds.push({ x: data.x, y: data.y, radius: data.radius, timer: 30 }); break;
         case 'chat-message': addChatMessage(data.sender, data.message, data.color); break;
     }
 };
@@ -976,14 +999,6 @@ function drawProjectile(p) {
     }
 }
 
-function drawWhirlwind(w) {
-    ctx.strokeStyle = 'rgba(200,200,255,0.5)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
-    ctx.stroke();
-}
-
 function drawGroundItem(item) {
     const icon = ITEM_ICONS[item.item];
     if (!icon) return;
@@ -1043,7 +1058,6 @@ function render() {
             darkness = 0.8 * (1 - (nightProgress - (dayNight.NIGHT_DURATION - transition)) / transition);
         }
     }
-    whirlwinds = whirlwinds.filter(w => { w.timer--; return w.timer > 0; });
     ctx.translate(-camera.x, -camera.y);
     ctx.fillStyle = '#5c8b5c';
     ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
@@ -1055,7 +1069,6 @@ function render() {
     groundItems.forEach(drawGroundItem);
     boars.forEach(drawBoar);
     ogres.forEach(drawOgre);
-    whirlwinds.forEach(drawWhirlwind);
     projectiles.forEach(drawProjectile);
     zombies.forEach(drawZombie);
     Object.values(structures).forEach(drawStructure);
@@ -1137,6 +1150,7 @@ function gameLoop() {
             }
         }
         updateSummonerBar();
+        updateAbilityIndicator();
     }
     render();
     requestAnimationFrame(gameLoop);
@@ -1178,16 +1192,35 @@ window.addEventListener('keydown', e => {
         const idx = types.indexOf(summonerSpawnType);
         summonerSpawnType = types[(idx + 1) % types.length];
         updateSummonerBar();
+        updateAbilityIndicator();
     }
 });
 window.addEventListener('wheel', e => {
-    if (document.activeElement !== chatInput && players[myPlayerId]?.class === 'summoner') {
-        const types = ['attack', 'healer', 'ranged'];
-        let idx = types.indexOf(summonerSpawnType);
-        idx = (idx + (e.deltaY > 0 ? 1 : -1) + types.length) % types.length;
-        summonerSpawnType = types[idx];
-        updateSummonerBar();
-        e.preventDefault();
+    if (document.activeElement !== chatInput) {
+        const me = players[myPlayerId];
+        if (me?.class === 'summoner') {
+            const types = ['attack', 'healer', 'ranged'];
+            let idx = types.indexOf(summonerSpawnType);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + types.length) % types.length;
+            summonerSpawnType = types[idx];
+            updateSummonerBar();
+            e.preventDefault();
+        } else if (me?.class === 'mage' && me.canSlow) {
+            const spells = ['slow'];
+            if (me.canBind) spells.push('bind');
+            let idx = spells.indexOf(selectedMageSpell);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + spells.length) % spells.length;
+            selectedMageSpell = spells[idx];
+            updateAbilityIndicator();
+            e.preventDefault();
+        } else if (me?.class === 'knight' && me.knightSkills && me.knightSkills['knight-shield']) {
+            const abilities = ['sword', 'shield'];
+            let idx = abilities.indexOf(selectedKnightAbility);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + abilities.length) % abilities.length;
+            selectedKnightAbility = abilities[idx];
+            updateAbilityIndicator();
+            e.preventDefault();
+        }
     }
 }, { passive: false });
 window.addEventListener('keydown', e => {
@@ -1199,18 +1232,19 @@ window.addEventListener('keydown', e => {
                 if (me.mana >= 100) {
                     socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
                 }
-            } else if (me.class === 'mage' && me.canSlow) {
+            } else if (me.class === 'mage') {
                 const targetX = mousePos.x + camera.x;
                 const targetY = mousePos.y + camera.y;
-                socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
-            } else if (me.class === 'knight' && me.knightSkills && me.knightSkills['knight-whirlwind']) {
-                socket.send(JSON.stringify({ type: 'whirlwind' }));
+                if (selectedMageSpell === 'bind' && me.canBind) {
+                    socket.send(JSON.stringify({ type: 'cast-bind', targetX, targetY }));
+                } else if (selectedMageSpell === 'slow' && me.canSlow) {
+                    socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
+                }
+            } else if (me.class === 'knight' && me.knightSkills && me.knightSkills['knight-shield'] && selectedKnightAbility === 'shield') {
+                const targetX = mousePos.x + camera.x;
+                const targetY = mousePos.y + camera.y;
+                socket.send(JSON.stringify({ type: 'shield-dash', targetX, targetY }));
             }
-            e.preventDefault();
-        } else if (e.code === 'KeyB' && me.class === 'mage' && me.canBind) {
-            const targetX = mousePos.x + camera.x;
-            const targetY = mousePos.y + camera.y;
-            socket.send(JSON.stringify({ type: 'cast-bind', targetX, targetY }));
             e.preventDefault();
         }
     }
