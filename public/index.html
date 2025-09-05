@@ -58,24 +58,32 @@
             <div id="skill-points">Points: 0</div>
             <div id="skill-range" class="skill-node locked">Longer Range</div>
             <div class="class-row">
-                <div id="skill-mage" class="skill-node locked" data-skill="mage">Mage</div>
-                <div id="skill-knight" class="skill-node locked" data-skill="knight">Knight</div>
-                <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
-            </div>
-            <div id="knight-skills" class="class-skills hidden">
-                <div id="skill-knight-damage" class="skill-node locked" data-skill="knight-damage">Sword Damage</div>
-                <div id="skill-knight-speed" class="skill-node locked" data-skill="knight-speed">Speed</div>
-                <div id="skill-knight-health" class="skill-node locked" data-skill="knight-health">Health</div>
-            </div>
-            <div id="summoner-skills" class="class-skills hidden">
-                <div id="skill-summoner-attack" class="skill-node locked" data-skill="summoner-attack">+1 Attack Minion</div>
-                <div id="skill-summoner-healer" class="skill-node locked" data-skill="summoner-healer">+1 Healer Minion</div>
-                <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
-            </div>
-            <div id="mage-skills" class="class-skills hidden">
-                <div id="skill-mage-mana" class="skill-node locked" data-skill="mage-mana">More Mana</div>
-                <div id="skill-mage-regen" class="skill-node locked" data-skill="mage-regen">Faster Mana Regen</div>
-                <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Spacebar)</div>
+                <div class="class-column">
+                    <div id="skill-mage" class="skill-node locked" data-skill="mage">Mage</div>
+                    <div id="mage-skills" class="class-skills hidden">
+                        <div id="skill-mage-mana" class="skill-node locked" data-skill="mage-mana">More Mana</div>
+                        <div id="skill-mage-regen" class="skill-node locked" data-skill="mage-regen">Faster Mana Regen</div>
+                        <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Spacebar)</div>
+                        <div id="skill-mage-slow-extend" class="skill-node locked hidden" data-skill="mage-slow-extend">Extend Slow to 10s</div>
+                        <div id="skill-mage-bind" class="skill-node locked hidden" data-skill="mage-bind">Binding Spell (B)</div>
+                    </div>
+                </div>
+                <div class="class-column">
+                    <div id="skill-knight" class="skill-node locked" data-skill="knight">Knight</div>
+                    <div id="knight-skills" class="class-skills hidden">
+                        <div id="skill-knight-damage" class="skill-node locked" data-skill="knight-damage">Sword Damage</div>
+                        <div id="skill-knight-speed" class="skill-node locked" data-skill="knight-speed">Speed</div>
+                        <div id="skill-knight-health" class="skill-node locked" data-skill="knight-health">Health</div>
+                    </div>
+                </div>
+                <div class="class-column">
+                    <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
+                    <div id="summoner-skills" class="class-skills hidden">
+                        <div id="skill-summoner-attack" class="skill-node locked" data-skill="summoner-attack">+1 Attack Minion</div>
+                        <div id="skill-summoner-healer" class="skill-node locked" data-skill="summoner-healer">+1 Healer Minion</div>
+                        <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -90,6 +98,7 @@
             <li>Q - Skill Tree</li>
             <li>Enter - Chat</li>
             <li>Space - Class Ability (e.g., Slow Spell)</li>
+            <li>B - Binding Spell</li>
         </ul>
         <button id="controls-btn">Continue</button>
     </div>

@@ -9,6 +9,10 @@ canvas {
     display: block;
 }
 
+.skill-node.hidden {
+    display: none;
+}
+
 #ui-container {
     position: absolute;
     bottom: 0;
@@ -235,6 +239,7 @@ canvas {
     pointer-events: auto;
 }
 #skill-tree.hidden { display: none; }
+.class-skills { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 .class-skills.hidden { display: none; }
 #skill-tree .tree-panel {
     background-image: url('icons/NightSky.png');
@@ -256,7 +261,9 @@ canvas {
 }
 .skill-node.locked { opacity: 0.5; cursor: default; }
 .skill-node.unlocked { border-color: #fff; }
+
 .class-row { display: flex; justify-content: space-between; gap: 10px; }
+.class-column { display: flex; flex-direction: column; align-items: center; }
 
 /* Notifications */
 #notifications {

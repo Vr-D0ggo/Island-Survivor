@@ -114,7 +114,8 @@ function createBoar(x, y) {
         behavior: behavior.type,
         color: behavior.color,
         burn: 0,
-        slow: 0
+        slow: 0,
+        bind: 0
     };
 }
 
@@ -182,6 +183,7 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         angle: 0,
         burn: 0,
         slow: 0,
+        bind: 0,
         ownerId,
         minionType,
         kind,
@@ -199,7 +201,7 @@ function spawnZombies(count) {
 function createOgre(x, y) {
     const size = 25;
     const hp = 50; // 5x player health
-    return { id: nextOgreId++, x, y, hp, maxHp: hp, size, baseSpeed: 1, speed: 1, cooldown: 0, vx: 0, vy: 0, target: null, fireCooldown: 0, burn: 0, slow: 0, wanderTimer: 0, angle: 0, facing: 0 };
+    return { id: nextOgreId++, x, y, hp, maxHp: hp, size, baseSpeed: 1, speed: 1, cooldown: 0, vx: 0, vy: 0, target: null, fireCooldown: 0, burn: 0, slow: 0, bind: 0, wanderTimer: 0, angle: 0, facing: 0 };
 }
 
 function spawnOgres(count) {
@@ -402,10 +404,13 @@ wss.on('connection', ws => {
         summonerSkills: { attack: 0, healer: 0, ranged: 0 },
         mageSkills: {},
         canSlow: false,
+        canBind: false,
+        slowDuration: 60,
         swordDamage: 0,
         attackRange: 0,
         class: null,
-        poison: 0
+        poison: 0,
+        bind: 0
     };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
@@ -618,14 +623,24 @@ wss.on('connection', ws => {
                         if (skill === 'summoner-attack') player.summonerSkills.attack++;
                         else if (skill === 'summoner-healer') player.summonerSkills.healer++;
                         else if (skill === 'summoner-ranged') player.summonerSkills.ranged++;
-                    } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-slow'].includes(skill)) {
+                    } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-slow', 'mage-slow-extend', 'mage-bind'].includes(skill)) {
                         if (!player.mageSkills) player.mageSkills = {};
                         if (!player.mageSkills[skill]) {
+                            if (skill === 'mage-slow-extend' && !player.mageSkills['mage-slow']) break;
+                            if (skill === 'mage-bind' && !player.mageSkills['mage-slow-extend']) break;
                             player.skillPoints--;
                             player.mageSkills[skill] = true;
-                            if (skill === 'mage-mana') { player.maxMana += 20; player.mana += 20; }
-                            else if (skill === 'mage-regen') { player.manaRegen += 0.5 / 60; }
-                            else if (skill === 'mage-slow') { player.canSlow = true; }
+                            if (skill === 'mage-mana') {
+                                player.maxMana += 20; player.mana += 20;
+                            } else if (skill === 'mage-regen') {
+                                player.manaRegen += 0.5 / 60;
+                            } else if (skill === 'mage-slow') {
+                                player.canSlow = true;
+                            } else if (skill === 'mage-slow-extend') {
+                                player.slowDuration = 600;
+                            } else if (skill === 'mage-bind') {
+                                player.canBind = true;
+                            }
                         }
                     }
                 }
@@ -655,7 +670,20 @@ wss.on('connection', ws => {
                     const spawnDist = player.size + 20;
                     const sx = player.x + Math.cos(angle) * spawnDist;
                     const sy = player.y + Math.sin(angle) * spawnDist;
-                    projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId, type: 'slow' });
+                    projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId, type: 'slow', duration: player.slowDuration || 60 });
+                }
+                break;
+            }
+            case 'cast-bind': {
+                if (player.class === 'mage' && player.canBind && player.mana >= 30) {
+                    player.mana -= 30;
+                    const { targetX, targetY } = data;
+                    const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                    const speed = 4;
+                    const spawnDist = player.size + 20;
+                    const sx = player.x + Math.cos(angle) * spawnDist;
+                    const sy = player.y + Math.sin(angle) * spawnDist;
+                    projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId, type: 'bind' });
                 }
                 break;
             }
@@ -909,7 +937,9 @@ function gameLoop() {
             if (proj.owner && proj.owner === id) continue;
             if (getDistance(p, proj) < p.size) {
                 if (proj.type === 'slow') {
-                    p.slow = 60;
+                    p.slow = proj.duration || 60;
+                } else if (proj.type === 'bind') {
+                    p.bind = 120;
                 } else if (!p.invulnerable || p.invulnerable <= 0) {
                     p.hp = Math.max(0, p.hp - 2);
                     if (proj.type !== 'minion') p.burn = 120;
@@ -930,7 +960,9 @@ function gameLoop() {
             for (const boar of boars) {
                 if (getDistance(boar, proj) < boar.size) {
                     if (proj.type === 'slow') {
-                        boar.slow = 60;
+                        boar.slow = proj.duration || 60;
+                    } else if (proj.type === 'bind') {
+                        boar.bind = 120;
                     } else {
                         boar.hp = Math.max(0, boar.hp - 2);
                         if (proj.type !== 'minion') boar.burn = 120;
@@ -948,7 +980,9 @@ function gameLoop() {
             for (const zombie of zombies) {
                 if (getDistance(zombie, proj) < zombie.size) {
                     if (proj.type === 'slow') {
-                        zombie.slow = 60;
+                        zombie.slow = proj.duration || 60;
+                    } else if (proj.type === 'bind') {
+                        zombie.bind = 120;
                     } else {
                         zombie.hp = Math.max(0, zombie.hp - 2);
                         if (proj.type !== 'minion') zombie.burn = 120;
@@ -966,7 +1000,9 @@ function gameLoop() {
             for (const ogre of ogres) {
                 if (getDistance(ogre, proj) < ogre.size) {
                     if (proj.type === 'slow') {
-                        ogre.slow = 60;
+                        ogre.slow = proj.duration || 60;
+                    } else if (proj.type === 'bind') {
+                        ogre.bind = 120;
                     } else {
                         ogre.hp = Math.max(0, ogre.hp - 2);
                         if (proj.type !== 'minion') ogre.burn = 120;
@@ -982,7 +1018,7 @@ function gameLoop() {
             for (const r of resources) {
                 if (r.harvested) continue;
                 if (getDistance(r, proj) < r.size / 2) {
-                    if (proj.type !== 'slow') {
+                    if (!['slow', 'bind'].includes(proj.type)) {
                         r.hp -= 2;
                         if (r.hp <= 0) {
                             r.harvested = true;
@@ -1001,7 +1037,8 @@ function gameLoop() {
 
     for (const boar of boars) {
         boar.speed = boar.baseSpeed;
-        if (boar.slow > 0) { boar.slow--; boar.speed = boar.baseSpeed * 0.5; }
+        if (boar.bind > 0) { boar.bind--; boar.speed = 0; }
+        else if (boar.slow > 0) { boar.slow--; boar.speed = boar.baseSpeed * 0.5; }
         if (boar.cooldown > 0) boar.cooldown--;
         if (boar.burn > 0) {
             boar.burn--;
@@ -1095,7 +1132,8 @@ function gameLoop() {
 
     for (const zombie of zombies) {
         zombie.speed = zombie.baseSpeed;
-        if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
+        if (zombie.bind > 0) { zombie.bind--; zombie.speed = 0; }
+        else if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
         if (dayNight.isDay && !isInShadow(zombie) && !zombie.ownerId) {
             zombie.burn = Math.min(120, (zombie.burn || 0) + 1);
@@ -1217,7 +1255,8 @@ function gameLoop() {
 
     for (const ogre of ogres) {
         ogre.speed = ogre.baseSpeed;
-        if (ogre.slow > 0) { ogre.slow--; ogre.speed = ogre.baseSpeed * 0.5; }
+        if (ogre.bind > 0) { ogre.bind--; ogre.speed = 0; }
+        else if (ogre.slow > 0) { ogre.slow--; ogre.speed = ogre.baseSpeed * 0.5; }
         if (ogre.cooldown > 0) ogre.cooldown--;
         if (ogre.fireCooldown > 0) ogre.fireCooldown--;
         let targetData = null;
@@ -1331,7 +1370,8 @@ function gameLoop() {
         const p = players[id];
         if (!p.active) continue;
         p.speed = p.baseSpeed;
-        if (p.slow > 0) { p.slow--; p.speed = p.baseSpeed * 0.5; }
+        if (p.bind > 0) { p.bind--; p.speed = 0; }
+        else if (p.slow > 0) { p.slow--; p.speed = p.baseSpeed * 0.5; }
         if (p.burn && p.burn > 0) {
             p.burn--;
             if (p.burn % 30 === 0 && (!p.invulnerable || p.invulnerable <= 0)) {
