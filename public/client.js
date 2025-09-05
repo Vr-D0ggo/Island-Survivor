@@ -230,6 +230,7 @@ function updateLevelUI() {
         const skill = node.dataset.skill;
         const unlocked = me.class === skill;
         const available = me.skills && me.skills.range && !me.class;
+        node.classList.toggle('hidden', me.class && me.class !== skill);
         node.classList.toggle('unlocked', unlocked);
         node.classList.toggle('locked', !(unlocked || available));
     });
@@ -239,12 +240,9 @@ function updateLevelUI() {
     knightSkillNodes.forEach(node => {
         const skill = node.dataset.skill;
         const unlocked = me.knightSkills && me.knightSkills[skill];
-        let available = me.class === 'knight' && me.skillPoints > 0 && !unlocked;
-        const prereq = knightSkillPrereqs[skill];
-        if (prereq) available = available && me.knightSkills && me.knightSkills[prereq];
-        node.classList.toggle('hidden', !(unlocked || available));
+        node.classList.remove('hidden');
         node.classList.toggle('unlocked', unlocked);
-        node.classList.toggle('locked', !(unlocked || available));
+        node.classList.toggle('locked', !unlocked);
     });
     summonerSkillNodes.forEach(node => {
         const available = me.class === 'summoner' && me.skillPoints > 0;
@@ -254,12 +252,9 @@ function updateLevelUI() {
     mageSkillNodes.forEach(node => {
         const skill = node.dataset.skill;
         const unlocked = me.mageSkills && me.mageSkills[skill];
-        let available = me.class === 'mage' && me.skillPoints > 0 && !unlocked;
-        if (skill === 'mage-slow-extend') available = available && me.mageSkills && me.mageSkills['mage-slow'];
-        if (skill === 'mage-bind') available = available && me.mageSkills && me.mageSkills['mage-slow-extend'];
-        node.classList.toggle('hidden', !(unlocked || available));
+        node.classList.remove('hidden');
         node.classList.toggle('unlocked', unlocked);
-        node.classList.toggle('locked', !(unlocked || available));
+        node.classList.toggle('locked', !unlocked);
     });
 }
 

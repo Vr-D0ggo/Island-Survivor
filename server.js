@@ -232,6 +232,52 @@ function getDistance(obj1, obj2) { return Math.hypot(obj1.x - obj2.x, obj1.y - o
 function countItems(player, itemName) { let t = 0; [...player.inventory, ...player.hotbar].forEach(s => { if (s && s.item === itemName) t += s.quantity; }); return t; }
 function consumeItems(player, itemName, amount) { let r = amount; const c = (s) => { if (s && s.item === itemName && r > 0) { const t = Math.min(r, s.quantity); s.quantity -= t; r -= t; if (s.quantity <= 0) return null; } return s; }; player.inventory = player.inventory.map(c); player.hotbar = player.hotbar.map(c); }
 function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = [...wss.clients].find(c => c.id === playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
+function handleDashDamage(player, angle, playerId) {
+    const dmg = 3 + (player.swordDamage || 0);
+    const knock = 40;
+    for (const id in players) {
+        if (id === playerId) continue;
+        const target = players[id];
+        if (!target.active) continue;
+        if (getDistance(player, target) < player.size + target.size) {
+            target.hp = Math.max(0, target.hp - dmg);
+            target.x += Math.cos(angle) * knock;
+            target.y += Math.sin(angle) * knock;
+            target.lastHitBy = playerId;
+            const c = [...wss.clients].find(cl => cl.id === id);
+            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+        }
+    }
+    for (const boar of boars) {
+        if (getDistance(player, boar) < player.size + boar.size) {
+            boar.hp = Math.max(0, boar.hp - dmg);
+            boar.x += Math.cos(angle) * knock;
+            boar.y += Math.sin(angle) * knock;
+            boar.aggressive = true;
+            boar.target = { type: 'player', id: playerId };
+            broadcast({ type: 'boar-update', boar });
+        }
+    }
+    for (const zombie of zombies) {
+        if (getDistance(player, zombie) < player.size + zombie.size) {
+            zombie.hp = Math.max(0, zombie.hp - dmg);
+            zombie.x += Math.cos(angle) * knock;
+            zombie.y += Math.sin(angle) * knock;
+            zombie.aggressive = true;
+            zombie.target = { type: 'player', id: playerId };
+            broadcast({ type: 'zombie-update', zombie });
+        }
+    }
+    for (const ogre of ogres) {
+        if (getDistance(player, ogre) < player.size + ogre.size) {
+            ogre.hp = Math.max(0, ogre.hp - dmg);
+            ogre.x += Math.cos(angle) * knock;
+            ogre.y += Math.sin(angle) * knock;
+            ogre.target = { type: 'player', id: playerId };
+            broadcast({ type: 'ogre-update', ogre });
+        }
+    }
+}
 function sendLevelUpdate(ws, player) {
     if (ws) ws.send(JSON.stringify({ type: 'level-update', level: player.level, skillPoints: player.skillPoints }));
 }
@@ -413,6 +459,9 @@ wss.on('connection', ws => {
         bowDamage: 0,
         attackRange: 0,
         dashCooldown: 0,
+        dashVX: 0,
+        dashVY: 0,
+        dashTime: 0,
         class: null,
         poison: 0,
         bind: 0
@@ -431,6 +480,7 @@ wss.on('connection', ws => {
         if (!player.active && data.type !== 'set-name' && data.type !== 'respawn') return;
         switch (data.type) {
             case 'move': {
+                if (player.dashTime && player.dashTime > 0) break;
                 const nx = data.x;
                 const ny = data.y;
                 if (!isBlocked(nx, ny, player.size)) {
@@ -515,7 +565,7 @@ wss.on('connection', ws => {
             }
             case 'hit-player': {
                 const target = players[data.targetId];
-                if (target && target.active && target.invulnerable <= 0 && getDistance(player, target) < player.size + target.size + 20 + (player.attackRange || 0)) {
+                if (target && target.active && (!target.invulnerable || target.invulnerable <= 0) && getDistance(player, target) < player.size + target.size + 20 + (player.attackRange || 0)) {
                     let dmg = getDamage(data.item, 'player');
                     if (player.class === 'knight' && data.item && data.item.toLowerCase().includes('sword')) {
                         dmg += player.swordDamage || 0;
@@ -717,56 +767,10 @@ wss.on('connection', ws => {
                     player.dashCooldown = 120;
                     const { targetX, targetY } = data;
                     const angle = Math.atan2(targetY - player.y, targetX - player.x);
-                    const dist = 120;
-                    const nx = Math.max(0, Math.min(WORLD_WIDTH, player.x + Math.cos(angle) * dist));
-                    const ny = Math.max(0, Math.min(WORLD_HEIGHT, player.y + Math.sin(angle) * dist));
-                    player.x = nx;
-                    player.y = ny;
+                    player.dashVX = Math.cos(angle) * 6;
+                    player.dashVY = Math.sin(angle) * 6;
+                    player.dashTime = 20;
                     player.invulnerable = 20;
-                    const dmg = 3 + (player.swordDamage || 0);
-                    const knock = 40;
-                    for (const id in players) {
-                        if (id === playerId) continue;
-                        const target = players[id];
-                        if (!target.active) continue;
-                        if (getDistance(player, target) < player.size + target.size) {
-                            target.hp = Math.max(0, target.hp - dmg);
-                            target.x += Math.cos(angle) * knock;
-                            target.y += Math.sin(angle) * knock;
-                            target.lastHitBy = playerId;
-                            const c = [...wss.clients].find(cl => cl.id === id);
-                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
-                        }
-                    }
-                    for (const boar of boars) {
-                        if (getDistance(player, boar) < player.size + boar.size) {
-                            boar.hp = Math.max(0, boar.hp - dmg);
-                            boar.x += Math.cos(angle) * knock;
-                            boar.y += Math.sin(angle) * knock;
-                            boar.aggressive = true;
-                            boar.target = { type: 'player', id: playerId };
-                            broadcast({ type: 'boar-update', boar });
-                        }
-                    }
-                    for (const zombie of zombies) {
-                        if (getDistance(player, zombie) < player.size + zombie.size) {
-                            zombie.hp = Math.max(0, zombie.hp - dmg);
-                            zombie.x += Math.cos(angle) * knock;
-                            zombie.y += Math.sin(angle) * knock;
-                            zombie.aggressive = true;
-                            zombie.target = { type: 'player', id: playerId };
-                            broadcast({ type: 'zombie-update', zombie });
-                        }
-                    }
-                    for (const ogre of ogres) {
-                        if (getDistance(player, ogre) < player.size + ogre.size) {
-                            ogre.hp = Math.max(0, ogre.hp - dmg);
-                            ogre.x += Math.cos(angle) * knock;
-                            ogre.y += Math.sin(angle) * knock;
-                            ogre.target = { type: 'player', id: playerId };
-                            broadcast({ type: 'ogre-update', ogre });
-                        }
-                    }
                 }
                 break;
             }
@@ -1144,6 +1148,26 @@ function gameLoop() {
                 }
             }
         }
+        if (!hit) {
+            for (const key in structures) {
+                const s = structures[key];
+                if (s.type === 'wood_wall' || s.type === 'stone_wall') {
+                    if (proj.x >= s.x && proj.x <= s.x + s.size && proj.y >= s.y && proj.y <= s.y + s.size) {
+                        delete structures[key];
+                        if (key.startsWith('b')) {
+                            const [bx, by] = key.slice(1).split(',').map(Number);
+                            blockGrid[bx][by] = false;
+                        } else if (key.startsWith('w') && s.type !== 'torch') {
+                            const [gx, gy] = key.slice(1).split(',').map(Number);
+                            markArea(gx, gy, 1, false);
+                        }
+                        broadcast({ type: 'structure-update', structures });
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+        }
         if (proj.x < 0 || proj.x > WORLD_WIDTH || proj.y < 0 || proj.y > WORLD_HEIGHT) hit = true;
         proj.remove = hit;
     }
@@ -1496,6 +1520,13 @@ function gameLoop() {
         }
         if (p.invulnerable && p.invulnerable > 0) p.invulnerable--;
         if (p.dashCooldown && p.dashCooldown > 0) p.dashCooldown--;
+        if (p.dashTime && p.dashTime > 0) {
+            p.x = Math.max(0, Math.min(WORLD_WIDTH, p.x + p.dashVX));
+            p.y = Math.max(0, Math.min(WORLD_HEIGHT, p.y + p.dashVY));
+            handleDashDamage(p, Math.atan2(p.dashVY, p.dashVX), id);
+            p.dashTime--;
+            p.moving = true;
+        }
         if (p.hp <= 0) {
             if (p.lastHitBy === 'zombie') {
                 const owned = zombies.filter(z => z.ownerId === id).length;
