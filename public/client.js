@@ -124,7 +124,9 @@ const summonerSkillNodes = [
 const mageSkillNodes = [
     document.getElementById('skill-mage-mana'),
     document.getElementById('skill-mage-regen'),
-    document.getElementById('skill-mage-slow')
+    document.getElementById('skill-mage-slow'),
+    document.getElementById('skill-mage-slow-extend'),
+    document.getElementById('skill-mage-bind')
 ];
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
@@ -234,7 +236,10 @@ function updateLevelUI() {
     mageSkillNodes.forEach(node => {
         const skill = node.dataset.skill;
         const unlocked = me.mageSkills && me.mageSkills[skill];
-        const available = me.class === 'mage' && me.skillPoints > 0 && !unlocked;
+        let available = me.class === 'mage' && me.skillPoints > 0 && !unlocked;
+        if (skill === 'mage-slow-extend') available = available && me.mageSkills && me.mageSkills['mage-slow'];
+        if (skill === 'mage-bind') available = available && me.mageSkills && me.mageSkills['mage-slow-extend'];
+        node.classList.toggle('hidden', !(unlocked || available));
         node.classList.toggle('unlocked', unlocked);
         node.classList.toggle('locked', !(unlocked || available));
     });
@@ -930,6 +935,11 @@ function drawProjectile(p) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
         ctx.fill();
+    } else if (p.type === 'bind') {
+        ctx.fillStyle = 'purple';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fill();
     } else if (p.type === 'minion') {
         ctx.fillStyle = 'white';
         ctx.beginPath();
@@ -1145,19 +1155,26 @@ window.addEventListener('wheel', e => {
     }
 }, { passive: false });
 window.addEventListener('keydown', e => {
-    if (document.activeElement !== chatInput && e.code === 'Space' && !e.repeat) {
+    if (document.activeElement !== chatInput && !e.repeat) {
         const me = players[myPlayerId];
         if (!me) return;
-        if (me.class === 'summoner') {
-            if (me.mana >= 100) {
-                socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+        if (e.code === 'Space') {
+            if (me.class === 'summoner') {
+                if (me.mana >= 100) {
+                    socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+                }
+            } else if (me.class === 'mage' && me.canSlow) {
+                const targetX = mousePos.x + camera.x;
+                const targetY = mousePos.y + camera.y;
+                socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
             }
-        } else if (me.class === 'mage' && me.canSlow) {
+            e.preventDefault();
+        } else if (e.code === 'KeyB' && me.class === 'mage' && me.canBind) {
             const targetX = mousePos.x + camera.x;
             const targetY = mousePos.y + camera.y;
-            socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
+            socket.send(JSON.stringify({ type: 'cast-bind', targetX, targetY }));
+            e.preventDefault();
         }
-        e.preventDefault();
     }
 });
 window.addEventListener('keydown', e => {
