@@ -139,6 +139,13 @@ function generateWorld() {
     spawnBoars(10);
     spawnZombies(5);
     spawnOgres(1);
+
+    // Spawn the forest boss: the Big Zombie.
+    let bossPos;
+    do {
+        bossPos = getFreePosition();
+    } while (bossPos.x > OLD_WORLD_WIDTH);
+    zombies.push(createZombie(bossPos.x, bossPos.y, null, 'attack', 'big'));
 }
 
 function createBoar(x, y) {
@@ -204,21 +211,24 @@ function spawnBoars(count) {
     }
 }
 
-function createZombie(x, y, ownerId = null, minionType = 'attack') {
-    const size = 20;
-    const hp = ownerId ? 5 : 20;
-    // Basic stats differ slightly for different minion roles.
+function createZombie(x, y, ownerId = null, minionType = 'attack', kindOverride = null, bossId = null) {
     const stats = {
         attack: { speed: 1.2, damage: 2 },
         healer: { speed: 1, damage: 0 },
         ranged: { speed: 1, damage: 2 }
     }[minionType] || { speed: 1.2, damage: 2 };
 
+    const isBig = kindOverride === 'big';
+    const size = isBig ? 35 : 20;
+    const hp = isBig ? 120 : (ownerId ? 5 : 20);
+    const baseSpeed = isBig ? 0.8 : stats.speed;
+    const damage = isBig ? 4 : stats.damage;
+
     // Different minion roles manifest as different creature types when
-    // summoned by a player. Wild zombies remain the default.
-    const kind = ownerId
+    // summoned by a player. Wild zombies remain the default unless overridden.
+    const kind = kindOverride || (ownerId
         ? ({ attack: 'zombie', healer: 'spirit', ranged: 'skeleton' }[minionType] || 'zombie')
-        : 'zombie';
+        : 'zombie');
 
     return {
         id: nextZombieId++,
@@ -229,9 +239,9 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         hp,
         maxHp: hp,
         size,
-        baseSpeed: stats.speed,
-        speed: stats.speed,
-        damage: stats.damage,
+        baseSpeed,
+        speed: baseSpeed,
+        damage,
         aggressive: false,
         target: null,
         cooldown: 0,
@@ -246,7 +256,10 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         ownerId,
         minionType,
         kind,
-        commanded: false
+        commanded: false,
+        bossId,
+        isBigZombie: isBig,
+        spawnCooldown: 0
     };
 }
 
@@ -1689,11 +1702,81 @@ function gameLoop() {
         else if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
         if (zombie.giveUpTimer > 0) zombie.giveUpTimer--;
-        if (dayNight.isDay && !isInShadow(zombie) && !zombie.ownerId) {
+        if (dayNight.isDay && !isInShadow(zombie) && !zombie.ownerId && !zombie.bossId && !zombie.isBigZombie) {
             zombie.burn = Math.min(120, (zombie.burn || 0) + 1);
             if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
         } else if (zombie.burn > 0) {
             zombie.burn--;
+        }
+
+        // Tree zombies that guard the Big Zombie.
+        if (zombie.bossId) {
+            const boss = zombies.find(z => z.id === zombie.bossId && z.isBigZombie);
+            if (boss) {
+                const distBoss = getDistance(zombie, boss);
+                if (distBoss > 80) moveToward(zombie, boss); else { zombie.vx = 0; zombie.vy = 0; }
+                let targetPlayer = null; let playerDist = Infinity;
+                for (const id in players) {
+                    const p = players[id];
+                    if (!p.active) continue;
+                    const d = getDistance(zombie, p);
+                    if (d < 100 && d < playerDist) { playerDist = d; targetPlayer = p; }
+                }
+                if (targetPlayer) {
+                    moveToward(zombie, targetPlayer);
+                    if (playerDist < zombie.size + targetPlayer.size && zombie.cooldown <= 0) {
+                        if (targetPlayer.invulnerable <= 0) {
+                            targetPlayer.hp = Math.max(0, targetPlayer.hp - zombie.damage);
+                            targetPlayer.lastHitBy = 'zombie';
+                            const c = [...wss.clients].find(cl => cl.id === targetPlayer.id);
+                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetPlayer.hp }));
+                        }
+                        zombie.cooldown = 60;
+                    }
+                }
+            }
+            zombie.wanderTimer--;
+            zombie.x = Math.max(0, Math.min(WORLD_WIDTH, zombie.x + zombie.vx));
+            zombie.y = Math.max(0, Math.min(WORLD_HEIGHT, zombie.y + zombie.vy));
+            continue;
+        }
+
+        // Big Zombie boss behaviour.
+        if (zombie.isBigZombie) {
+            let nearest = null; let min = Infinity;
+            for (const id in players) {
+                const p = players[id];
+                if (!p.active) continue;
+                const d = getDistance(zombie, p);
+                if (d < min) { min = d; nearest = p; }
+            }
+            if (nearest && min < 300) {
+                const angle = Math.atan2(zombie.y - nearest.y, zombie.x - nearest.x);
+                zombie.vx = Math.cos(angle) * zombie.speed;
+                zombie.vy = Math.sin(angle) * zombie.speed;
+            } else {
+                zombie.vx = 0; zombie.vy = 0;
+            }
+            const minions = zombies.filter(z => z.bossId === zombie.id);
+            if (minions.length === 0 && zombie.spawnCooldown <= 0) {
+                for (let i = 0; i < 3; i++) {
+                    const { x: nx, y: ny } = getSpawnPositionAround(zombie.x, zombie.y, 60);
+                    zombies.push(createZombie(nx, ny, null, 'attack', 'tree', zombie.id));
+                }
+                zombie.spawnCooldown = 600;
+            } else if (zombie.spawnCooldown > 0) zombie.spawnCooldown--;
+            const nx = zombie.x + zombie.vx;
+            const ny = zombie.y + zombie.vy;
+            if (!isBlocked(nx, ny, zombie.size) && !collidesWithEntities(nx, ny, zombie.size, zombie)) {
+                zombie.x = nx;
+                zombie.y = ny;
+            } else {
+                zombie.vx = -zombie.vx;
+                zombie.vy = -zombie.vy;
+            }
+            zombie.x = Math.max(0, Math.min(WORLD_WIDTH, zombie.x));
+            zombie.y = Math.max(0, Math.min(WORLD_HEIGHT, zombie.y));
+            continue;
         }
         // Healer minions simply follow their owner and heal them periodically.
         if (zombie.ownerId && zombie.minionType === 'healer') {
