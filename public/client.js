@@ -33,8 +33,7 @@ let projectiles = [];
 let selectedMageSpell = 'slow';
 let selectedKnightAbility = 'non';
 let selectedRogueAbility = 'bomb';
-let attackCooldown = 0;
-const ATTACK_COOLDOWN_MAX = 60;
+let attackCooldown = 0; // no global left-click cooldown
 let camera = { x: 0, y: 0 };
 const OLD_WORLD_WIDTH = 3000;
 const WORLD_WIDTH = OLD_WORLD_WIDTH * 2;
@@ -112,6 +111,12 @@ const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
 const colorInput = document.getElementById('color-input');
 const eyeColorInput = document.getElementById('eye-color-input');
+const customizeBtn = document.getElementById('customize-btn');
+const customizationPanel = document.getElementById('customization-panel');
+const mouthSelect = document.getElementById('mouth-select');
+const mouthColorInput = document.getElementById('mouth-color-input');
+const previewCanvas = document.getElementById('preview-canvas');
+const previewCtx = previewCanvas ? previewCanvas.getContext('2d') : null;
 const startBtn = document.getElementById('start-btn');
 const controlsScreen = document.getElementById('controls-screen');
 const controlsBtn = document.getElementById('controls-btn');
@@ -168,6 +173,54 @@ const rogueSkillNodes = [
 ];
 const rogueSkillPrereqs = { 'rogue-smoke': 'rogue-bomb' };
 
+function renderMouth(ctx, x, y, size, type, color) {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    switch (type) {
+        case 'line':
+            ctx.beginPath();
+            ctx.moveTo(x - size, y);
+            ctx.lineTo(x + size, y);
+            ctx.stroke();
+            break;
+        case 'square':
+            ctx.fillRect(x - size, y - size, size * 2, size * 2);
+            break;
+        case 'circle':
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case 'oval':
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(1.5, 1);
+            ctx.beginPath();
+            ctx.arc(0, 0, size, 0, Math.PI * 2);
+            ctx.restore();
+            ctx.fill();
+            break;
+        case 'diamond':
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x + size, y);
+            ctx.lineTo(x, y + size);
+            ctx.lineTo(x - size, y);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 'triangle':
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x + size, y + size);
+            ctx.lineTo(x - size, y + size);
+            ctx.closePath();
+            ctx.fill();
+            break;
+    }
+}
+
 function orderSkillGroup(group, prereqs) {
     const nodes = Array.from(group.children);
     const depth = skill => {
@@ -194,12 +247,39 @@ if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.class
 if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
 if (controlsBtn) controlsBtn.onclick = () => { controlsScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); };
 if (startBtn) startBtn.onclick = () => { preSpawnScreen.classList.add('hidden'); classScreen.classList.remove('hidden'); };
+if (customizeBtn) customizeBtn.onclick = () => {
+    customizationPanel.classList.toggle('hidden');
+    drawPreview();
+};
+[colorInput, eyeColorInput, mouthSelect, mouthColorInput].forEach(el => {
+    if (el) el.addEventListener('input', drawPreview);
+});
+function drawPreview() {
+    if (!previewCtx) return;
+    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    const x = previewCanvas.width / 2;
+    const y = previewCanvas.height / 2;
+    const size = 30;
+    previewCtx.beginPath();
+    previewCtx.arc(x, y, size, 0, Math.PI * 2);
+    previewCtx.fillStyle = colorInput.value;
+    previewCtx.fill();
+    previewCtx.strokeStyle = '#333';
+    previewCtx.lineWidth = 3;
+    previewCtx.stroke();
+    previewCtx.beginPath();
+    previewCtx.arc(x - size * 0.4, y - size * 0.4, size * 0.2, 0, Math.PI * 2);
+    previewCtx.arc(x + size * 0.4, y + size * 0.4, size * 0.2, 0, Math.PI * 2);
+    previewCtx.fillStyle = eyeColorInput.value;
+    previewCtx.fill();
+    renderMouth(previewCtx, x, y + size * 0.4, size * 0.2, mouthSelect.value, mouthColorInput.value);
+}
 classButtons.forEach(btn => {
     btn.onclick = () => {
         const cls = btn.dataset.class;
         classScreen.classList.add('hidden');
         preSpawn = false;
-        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value, eyeColor: eyeColorInput.value }));
+        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value, eyeColor: eyeColorInput.value, mouth: mouthSelect.value, mouthColor: mouthColorInput.value }));
         socket.send(JSON.stringify({ type: 'set-class', class: cls }));
     };
 });
@@ -258,13 +338,7 @@ function updatePlayerManaBar() {
 }
 
 function updateAttackBar() {
-    if (!attackBar || !attackFill) return;
-    if (attackCooldown > 0) {
-        attackBar.classList.remove('hidden');
-        attackFill.style.height = `${(attackCooldown / ATTACK_COOLDOWN_MAX) * 100}%`;
-    } else {
-        attackBar.classList.add('hidden');
-    }
+    if (attackBar) attackBar.classList.add('hidden');
 }
 
 function updateLevelUI() {
@@ -737,7 +811,6 @@ function playerMovement() {
 }
 canvas.addEventListener('mousedown', e => {
     if (!myPlayerId || !players[myPlayerId] || e.button !== 0 || preSpawn) return;
-    if (attackCooldown > 0) return;
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
@@ -808,7 +881,6 @@ canvas.addEventListener('mousedown', e => {
         if (key) socket.send(JSON.stringify({ type: 'hit-structure', key, item: selectedItem ? selectedItem.item : null, hotbarIndex: selectedHotbarSlot }));
     }
     if (didAttack) {
-        attackCooldown = ATTACK_COOLDOWN_MAX;
         updateAttackBar();
     }
 });
@@ -918,6 +990,9 @@ function drawPlayer(player, isMe) {
     ctx.arc(x + nx, y + ny, player.size * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
     ctx.fill();
+    const mx = x + Math.cos(angle) * player.size * 0.6;
+    const my = y + Math.sin(angle) * player.size * 0.6;
+    renderMouth(ctx, mx, my, player.size * 0.3, player.mouth || 'line', player.mouthColor || '#000');
     if (player.hp < player.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(x - player.size, y - player.size - 10, player.size * 2, 6);
@@ -1323,7 +1398,6 @@ function gameLoop() {
         }
         updateSummonerBar();
         updateAbilityIndicator();
-        if (attackCooldown > 0) attackCooldown--;
         updateAttackBar();
     }
     render();
