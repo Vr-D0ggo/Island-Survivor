@@ -275,12 +275,53 @@ canvas {
     margin: 10px auto;
     width: 150px;
     cursor: pointer;
+    position: relative;
 }
 .skill-node.locked { opacity: 0.5; cursor: default; }
 .skill-node.unlocked { border-color: #fff; }
 
-.class-row { display: flex; justify-content: space-between; gap: 10px; }
-.class-column { display: flex; flex-direction: column; align-items: center; }
+.class-row { display: flex; justify-content: space-between; gap: 40px; position: relative; margin-top: 40px; }
+.class-column { display: flex; flex-direction: column; align-items: center; position: relative; }
+.class-column::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    width: 2px;
+    height: 20px;
+    background: #888;
+}
+.class-column .skill-node::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    width: 2px;
+    height: 20px;
+    background: #888;
+}
+.class-column .skill-node:first-child::before { display: none; }
+
+#skill-range { position: relative; margin-bottom: 40px; }
+#skill-range::after {
+    content: '';
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    width: 2px;
+    height: 20px;
+    background: #888;
+}
+.class-row::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    width: calc(100% - 80px);
+    height: 2px;
+    background: #888;
+    transform: translateX(-50%);
+}
 
 /* Notifications */
 #notifications {
