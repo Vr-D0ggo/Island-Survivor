@@ -250,7 +250,15 @@ canvas {
     pointer-events: auto;
 }
 #skill-tree.hidden { display: none; }
-.class-skills { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+/* Skill trees now use a manual grid layout so nodes can be placed under their prerequisites */
+.class-skills {
+    display: grid;
+    grid-template-columns: repeat(3, 150px);
+    grid-auto-rows: 60px;
+    justify-content: center;
+    gap: 40px;
+    position: relative;
+}
 .class-skills.hidden { display: none; }
 #skill-tree .tree-panel {
     background-image: url('icons/NightSky.png');
@@ -302,26 +310,38 @@ canvas {
 }
 .class-column .skill-node:first-child::before { display: none; }
 
-#skill-range { position: relative; margin-bottom: 40px; }
-#skill-range::after {
-    content: '';
-    position: absolute;
-    bottom: -20px;
-    left: 50%;
-    width: 2px;
-    height: 20px;
-    background: #888;
-}
+/* Hide old connector lines when using manual grid placement */
+.class-column::before,
+.class-column .skill-node::before,
+#skill-range::after,
 .class-row::before {
-    content: '';
-    position: absolute;
-    top: -20px;
-    left: 50%;
-    width: calc(100% - 80px);
-    height: 2px;
-    background: #888;
-    transform: translateX(-50%);
+    display: none;
 }
+
+/* === Manual positioning for each skill === */
+#mage-skills { grid-template-columns: repeat(3, 150px); }
+#skill-mage-mana { grid-column: 1; grid-row: 1; }
+#skill-mage-regen { grid-column: 2; grid-row: 1; }
+#skill-mage-slow { grid-column: 3; grid-row: 1; }
+#skill-mage-missile { grid-column: 1; grid-row: 2; }
+#skill-mage-slow-extend { grid-column: 3; grid-row: 2; }
+#skill-mage-bind { grid-column: 3; grid-row: 3; }
+
+#knight-skills { grid-template-columns: repeat(3, 150px); }
+#skill-knight-damage { grid-column: 1; grid-row: 1; }
+#skill-knight-speed { grid-column: 2; grid-row: 1; }
+#skill-knight-health { grid-column: 3; grid-row: 1; }
+#skill-knight-bow-range { grid-column: 1; grid-row: 2; }
+#skill-knight-bow-damage { grid-column: 1; grid-row: 3; }
+#skill-knight-whirlwind { grid-column: 1; grid-row: 4; }
+#skill-knight-shield { grid-column: 2; grid-row: 2; }
+
+#summoner-skills { grid-template-columns: repeat(3, 150px); }
+#skill-summoner-attack { grid-column: 1; grid-row: 1; }
+#skill-summoner-healer { grid-column: 2; grid-row: 1; }
+#skill-summoner-ranged { grid-column: 3; grid-row: 1; }
+
+#skill-range { position: relative; margin-bottom: 40px; }
 
 /* Notifications */
 #notifications {
