@@ -673,7 +673,9 @@ function playerMovement() {
     if (!collision) {
         player.x = predictedX;
         player.y = predictedY;
-        socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y }));
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y }));
+        }
     }
 }
 canvas.addEventListener('mousedown', e => {
