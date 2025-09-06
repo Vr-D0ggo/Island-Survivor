@@ -273,8 +273,17 @@ function handleDashDamage(player, angle, playerId) {
             ogre.hp = Math.max(0, ogre.hp - dmg);
             ogre.x += Math.cos(angle) * knock;
             ogre.y += Math.sin(angle) * knock;
-            ogre.target = { type: 'player', id: playerId };
-            broadcast({ type: 'ogre-update', ogre });
+            if (ogre.hp <= 0) {
+                groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: ogre.x, y: ogre.y });
+                ogres = ogres.filter(o => o.id !== ogre.id);
+                const c = [...wss.clients].find(cl => cl.id === playerId);
+                if (c) levelUp(player, c);
+                broadcast({ type: 'ogre-update', ogre });
+                break;
+            } else {
+                ogre.target = { type: 'player', id: playerId };
+                broadcast({ type: 'ogre-update', ogre });
+            }
         }
     }
 }
@@ -282,7 +291,7 @@ function handleDashDamage(player, angle, playerId) {
 function handleWhirlwindDamage(player, playerId) {
     const dmg = 3 + (player.swordDamage || 0);
     const knock = 15;
-    const radius = player.size + 60;
+    const radius = player.size + 100;
     for (const id in players) {
         if (id === playerId) continue;
         const target = players[id];
@@ -298,14 +307,22 @@ function handleWhirlwindDamage(player, playerId) {
         }
     }
     const process = (arr, type) => {
-        for (const obj of arr) {
+        for (let i = arr.length - 1; i >= 0; i--) {
+            const obj = arr[i];
             if (getDistance(player, obj) < radius) {
                 obj.hp = Math.max(0, obj.hp - dmg);
                 const angle = Math.atan2(obj.y - player.y, obj.x - player.x);
                 obj.x += Math.cos(angle) * knock;
                 obj.y += Math.sin(angle) * knock;
-                if (type !== 'ogre') { obj.aggressive = true; obj.target = { type: 'player', id: playerId }; }
-                else { obj.target = { type: 'player', id: playerId }; }
+                if (type === 'ogre' && obj.hp <= 0) {
+                    groundItems.push({ id: nextItemId++, item: 'Fire Staff', quantity: 1, x: obj.x, y: obj.y });
+                    arr.splice(i, 1);
+                    const c = [...wss.clients].find(cl => cl.id === playerId);
+                    if (c) levelUp(player, c);
+                } else {
+                    if (type !== 'ogre') { obj.aggressive = true; obj.target = { type: 'player', id: playerId }; }
+                    else { obj.target = { type: 'player', id: playerId }; }
+                }
                 const updateType = type === 'boar' ? 'boar-update' : type === 'zombie' ? 'zombie-update' : 'ogre-update';
                 broadcast({ type: updateType, [type === 'boar' ? 'boar' : type === 'zombie' ? 'zombie' : 'ogre']: obj });
             }
