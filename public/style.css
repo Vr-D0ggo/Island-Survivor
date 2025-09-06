@@ -331,8 +331,6 @@ canvas {
 #skill-knight-damage { grid-column: 1; grid-row: 1; }
 #skill-knight-speed { grid-column: 2; grid-row: 1; }
 #skill-knight-health { grid-column: 3; grid-row: 1; }
-#skill-knight-bow-range { grid-column: 1; grid-row: 2; }
-#skill-knight-bow-damage { grid-column: 1; grid-row: 3; }
 #skill-knight-whirlwind { grid-column: 1; grid-row: 4; }
 #skill-knight-shield { grid-column: 2; grid-row: 2; }
 
@@ -340,6 +338,11 @@ canvas {
 #skill-summoner-attack { grid-column: 1; grid-row: 1; }
 #skill-summoner-healer { grid-column: 2; grid-row: 1; }
 #skill-summoner-ranged { grid-column: 3; grid-row: 1; }
+
+#rogue-skills { grid-template-columns: repeat(3, 150px); }
+#skill-rogue-bomb { grid-column: 1; grid-row: 1; }
+#skill-rogue-teleport { grid-column: 2; grid-row: 1; }
+#skill-rogue-bow { grid-column: 3; grid-row: 1; }
 
 #skill-range { position: relative; margin-bottom: 40px; }
 

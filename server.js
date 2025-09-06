@@ -229,6 +229,29 @@ function getActivePlayers() {
     return active;
 }
 function getDistance(obj1, obj2) { return Math.hypot(obj1.x - obj2.x, obj1.y - obj2.y); }
+function findNearestTarget(player) {
+    let nearest = null;
+    let dist = Infinity;
+    for (const [id, p] of Object.entries(players)) {
+        if (id !== player.id && p.active) {
+            const d = getDistance(player, p);
+            if (d < dist) { dist = d; nearest = { type: 'player', id }; }
+        }
+    }
+    for (const boar of boars) {
+        const d = getDistance(player, boar);
+        if (d < dist) { dist = d; nearest = { type: 'boar', id: boar.id }; }
+    }
+    for (const zombie of zombies) {
+        const d = getDistance(player, zombie);
+        if (d < dist) { dist = d; nearest = { type: 'zombie', id: zombie.id }; }
+    }
+    for (const ogre of ogres) {
+        const d = getDistance(player, ogre);
+        if (d < dist) { dist = d; nearest = { type: 'ogre', id: ogre.id }; }
+    }
+    return nearest;
+}
 function countItems(player, itemName) { let t = 0; [...player.inventory, ...player.hotbar].forEach(s => { if (s && s.item === itemName) t += s.quantity; }); return t; }
 function consumeItems(player, itemName, amount) { let r = amount; const c = (s) => { if (s && s.item === itemName && r > 0) { const t = Math.min(r, s.quantity); s.quantity -= t; r -= t; if (s.quantity <= 0) return null; } return s; }; player.inventory = player.inventory.map(c); player.hotbar = player.hotbar.map(c); }
 function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = [...wss.clients].find(c => c.id === playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
@@ -504,13 +527,14 @@ wss.on('connection', ws => {
         knightSkills: {},
         summonerSkills: { attack: 0, healer: 0, ranged: 0 },
         mageSkills: {},
+        rogueSkills: {},
         canSlow: false,
         canBind: false,
         canMissile: false,
+        canBomb: false,
+        canTeleport: false,
         slowDuration: 60,
         swordDamage: 0,
-        bowRange: 0,
-        bowDamage: 0,
         attackRange: 0,
         dashCooldown: 0,
         whirlwindCooldown: 0,
@@ -520,7 +544,8 @@ wss.on('connection', ws => {
         dashTime: 0,
         class: null,
         poison: 0,
-        bind: 0
+        bind: 0,
+        color: '#ff0000'
     };
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
@@ -562,6 +587,7 @@ wss.on('connection', ws => {
                 break;
             case 'set-name':
                 if (typeof data.name === 'string') player.name = data.name.slice(0, 20);
+                if (typeof data.color === 'string') player.color = data.color;
                 if (!player.active) {
                     player.active = true;
                     player.x = player.spawnX;
@@ -571,11 +597,15 @@ wss.on('connection', ws => {
                 }
                 break;
             case 'set-class':
-                if (['knight', 'mage', 'summoner'].includes(data.class)) {
+                if (['knight', 'mage', 'summoner', 'rogue'].includes(data.class)) {
                     player.class = data.class;
                     if (!player.skills) player.skills = {};
                     player.skills.range = true;
                     player.skills[data.class] = true;
+                    if (data.class === 'rogue') {
+                        addItemToPlayer(playerId, 'Bow', 1);
+                        addItemToPlayer(playerId, 'Arrow', 2);
+                    }
                 }
                 break;
             case 'hit-resource': {
@@ -715,16 +745,14 @@ wss.on('connection', ws => {
                         player.skillPoints--;
                         player.skills.range = true;
                         player.attackRange += 20;
-                    } else if (['mage', 'knight', 'summoner'].includes(skill) && player.skills.range && !player.class) {
+                    } else if (['mage', 'knight', 'summoner', 'rogue'].includes(skill) && player.skills.range && !player.class) {
                         player.skillPoints--;
                         player.skills[skill] = true;
                         player.class = skill;
-                    } else if (player.class === 'knight' && ['knight-damage', 'knight-speed', 'knight-health', 'knight-bow-range', 'knight-bow-damage', 'knight-shield', 'knight-whirlwind'].includes(skill)) {
+                    } else if (player.class === 'knight' && ['knight-damage', 'knight-speed', 'knight-health', 'knight-shield', 'knight-whirlwind'].includes(skill)) {
                         if (!player.knightSkills) player.knightSkills = {};
                         if (!player.knightSkills[skill]) {
                             // prerequisite checks
-                            if (skill === 'knight-bow-range' && !player.knightSkills['knight-damage']) break;
-                            if (skill === 'knight-bow-damage' && !player.knightSkills['knight-bow-range']) break;
                             if (skill === 'knight-shield' && !player.knightSkills['knight-speed']) break;
                             if (skill === 'knight-whirlwind' && !player.knightSkills['knight-damage']) break;
                             player.skillPoints--;
@@ -732,8 +760,6 @@ wss.on('connection', ws => {
                             if (skill === 'knight-damage') player.swordDamage += 2;
                             else if (skill === 'knight-speed') { player.baseSpeed += 0.5; player.speed += 0.5; }
                             else if (skill === 'knight-health') { player.maxHp += 5; player.hp += 5; }
-                            else if (skill === 'knight-bow-range') { player.bowRange += 2; }
-                            else if (skill === 'knight-bow-damage') { player.bowDamage += 1; }
                         }
                     } else if (player.class === 'summoner' && ['summoner-attack', 'summoner-healer', 'summoner-ranged'].includes(skill)) {
                         if (!player.summonerSkills) player.summonerSkills = { attack: 0, healer: 0, ranged: 0 };
@@ -762,6 +788,14 @@ wss.on('connection', ws => {
                             } else if (skill === 'mage-missile') {
                                 player.canMissile = true;
                             }
+                        }
+                    } else if (player.class === 'rogue' && ['rogue-bomb', 'rogue-teleport', 'rogue-bow'].includes(skill)) {
+                        if (!player.rogueSkills) player.rogueSkills = {};
+                        if (!player.rogueSkills[skill]) {
+                            player.skillPoints--;
+                            player.rogueSkills[skill] = true;
+                            if (skill === 'rogue-bomb') player.canBomb = true;
+                            else if (skill === 'rogue-teleport') player.canTeleport = true;
                         }
                     }
                 }
@@ -809,10 +843,12 @@ wss.on('connection', ws => {
                 break;
             }
             case 'cast-missile': {
-                const { targetType, targetId } = data;
-                if (player.class === 'mage' && player.canMissile && player.mana >= 75 && targetType && targetId) {
+                if (player.class === 'mage' && player.canMissile && player.mana >= 75) {
                     player.mana -= 75;
-                    projectiles.push({ id: nextProjectileId++, x: player.x, y: player.y, vx: 0, vy: 0, owner: playerId, type: 'missile', targetType, targetId });
+                    const target = findNearestTarget(player);
+                    if (target) {
+                        projectiles.push({ id: nextProjectileId++, x: player.x, y: player.y, vx: 0, vy: 0, owner: playerId, type: 'missile', targetType: target.type, targetId: target.id });
+                    }
                 }
                 break;
             }
@@ -822,7 +858,7 @@ wss.on('connection', ws => {
                     ws.send(JSON.stringify({ type: 'inventory-update', inventory: player.inventory, hotbar: player.hotbar }));
                     const { targetX, targetY } = data;
                     const angle = Math.atan2(targetY - player.y, targetX - player.x);
-                    const speed = 6 + (player.bowRange || 0);
+                    const speed = 6;
                     const spawnDist = player.size + 20;
                     const sx = player.x + Math.cos(angle) * spawnDist;
                     const sy = player.y + Math.sin(angle) * spawnDist;
@@ -847,6 +883,21 @@ wss.on('connection', ws => {
                     player.whirlwindCooldown = 180;
                     player.whirlwindTime = 20;
                     handleWhirlwindDamage(player, playerId);
+                }
+                break;
+            }
+            case 'rogue-bomb': {
+                if (player.class === 'rogue' && player.canBomb) {
+                    const { targetX, targetY } = data;
+                    projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'bomb', timer: 60 });
+                }
+                break;
+            }
+            case 'rogue-teleport': {
+                if (player.class === 'rogue' && player.canTeleport) {
+                    const { targetX, targetY } = data;
+                    player.x = targetX;
+                    player.y = targetY;
                 }
                 break;
             }
@@ -1091,6 +1142,45 @@ function gameLoop() {
     }
 
     for (const proj of projectiles) {
+        if (proj.type === 'bomb') {
+            proj.timer--;
+            if (proj.timer <= 0) {
+                const radius = 40;
+                const damage = 4;
+                for (const id in players) {
+                    const p = players[id];
+                    if (!p.active) continue;
+                    if (getDistance(p, proj) < radius) {
+                        p.hp = Math.max(0, p.hp - damage);
+                        p.lastHitBy = proj.owner || 'ogre';
+                        const c = [...wss.clients].find(cl => cl.id === id);
+                        if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                    }
+                }
+                for (const boar of boars) {
+                    if (getDistance(boar, proj) < radius) {
+                        boar.hp = Math.max(0, boar.hp - damage);
+                        boar.aggressive = true;
+                        broadcast({ type: 'boar-update', boar });
+                    }
+                }
+                for (const zombie of zombies) {
+                    if (getDistance(zombie, proj) < radius) {
+                        zombie.hp = Math.max(0, zombie.hp - damage);
+                        zombie.aggressive = true;
+                        broadcast({ type: 'zombie-update', zombie });
+                    }
+                }
+                for (const ogre of ogres) {
+                    if (getDistance(ogre, proj) < radius) {
+                        ogre.hp = Math.max(0, ogre.hp - damage);
+                        broadcast({ type: 'ogre-update', ogre });
+                    }
+                }
+                proj.remove = true;
+            }
+            continue;
+        }
         if (proj.type === 'missile' && proj.targetType) {
             let target;
             if (proj.targetType === 'player') target = players[proj.targetId];
@@ -1099,7 +1189,7 @@ function gameLoop() {
             else if (proj.targetType === 'ogre') target = ogres.find(o => o.id === proj.targetId);
             if (target) {
                 const angle = Math.atan2(target.y - proj.y, target.x - proj.x);
-                const speed = 2;
+                const speed = 1;
                 proj.vx = Math.cos(angle) * speed;
                 proj.vy = Math.sin(angle) * speed;
             } else {
@@ -1135,12 +1225,7 @@ function gameLoop() {
                 } else {
                     if (!p.invulnerable || p.invulnerable <= 0) {
                         let dmg = 2;
-                        if (proj.type === 'arrow') {
-                            const owner = players[proj.owner];
-                            if (owner) dmg += owner.bowDamage || 0;
-                        } else {
-                            if (proj.type !== 'minion') p.burn = 120;
-                        }
+                        if (proj.type !== 'arrow' && proj.type !== 'minion') p.burn = 120;
                         p.hp = Math.max(0, p.hp - dmg);
                         p.lastHitBy = proj.owner || 'ogre';
                         const c = [...wss.clients].find(cl => cl.id === id);
@@ -1172,12 +1257,7 @@ function gameLoop() {
                         broadcast({ type: 'boar-update', boar });
                     } else {
                         let dmg = 2;
-                        if (proj.type === 'arrow') {
-                            const owner = players[proj.owner];
-                            if (owner) dmg += owner.bowDamage || 0;
-                        } else {
-                            if (proj.type !== 'minion') boar.burn = 120;
-                        }
+                        if (proj.type !== 'arrow' && proj.type !== 'minion') boar.burn = 120;
                         boar.hp = Math.max(0, boar.hp - dmg);
                         boar.aggressive = true;
                         const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,boar)<getDistance(a,boar)?b:a) : null;
@@ -1205,12 +1285,7 @@ function gameLoop() {
                         broadcast({ type: 'zombie-update', zombie });
                     } else {
                         let dmg = 2;
-                        if (proj.type === 'arrow') {
-                            const owner = players[proj.owner];
-                            if (owner) dmg += owner.bowDamage || 0;
-                        } else {
-                            if (proj.type !== 'minion') zombie.burn = 120;
-                        }
+                        if (proj.type !== 'arrow' && proj.type !== 'minion') zombie.burn = 120;
                         zombie.hp = Math.max(0, zombie.hp - dmg);
                         zombie.aggressive = true;
                         const nearestOgre = ogres.length ? ogres.reduce((a,b)=>getDistance(b,zombie)<getDistance(a,zombie)?b:a) : null;
@@ -1236,12 +1311,7 @@ function gameLoop() {
                         broadcast({ type: 'ogre-update', ogre });
                     } else {
                         let dmg = 2;
-                        if (proj.type === 'arrow') {
-                            const owner = players[proj.owner];
-                            if (owner) dmg += owner.bowDamage || 0;
-                        } else {
-                            if (proj.type !== 'minion') ogre.burn = 120;
-                        }
+                        if (proj.type !== 'arrow' && proj.type !== 'minion') ogre.burn = 120;
                         ogre.hp = Math.max(0, ogre.hp - dmg);
                         if (proj.owner) ogre.target = { type: 'player', id: proj.owner };
                         broadcast({ type: 'ogre-update', ogre });
@@ -1257,10 +1327,6 @@ function gameLoop() {
                 if (getDistance(r, proj) < r.size / 2) {
                     if (!['slow', 'bind'].includes(proj.type)) {
                         let dmg = 2;
-                        if (proj.type === 'arrow') {
-                            const owner = players[proj.owner];
-                            if (owner) dmg += owner.bowDamage || 0;
-                        }
                         r.hp -= dmg;
                         if (r.hp <= 0) {
                             r.harvested = true;
