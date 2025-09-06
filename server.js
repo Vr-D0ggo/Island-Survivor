@@ -593,6 +593,10 @@ function collidesWithEntities(x, y, size, self) {
         if (z === self) continue;
         if (getDistance({ x, y }, z) < size / 2 + z.size / 2) return true;
     }
+    for (const o of ogres) {
+        if (o === self) continue;
+        if (getDistance({ x, y }, o) < size / 2 + o.size / 2) return true;
+    }
     return false;
 }
 
@@ -722,7 +726,7 @@ wss.on('connection', ws => {
                 if (player.dashTime && player.dashTime > 0) break;
                 const nx = data.x;
                 const ny = data.y;
-                if (!isBlocked(nx, ny, player.size)) {
+                if (!isBlocked(nx, ny, player.size) && !collidesWithEntities(nx, ny, player.size, player)) {
                     player.x = nx;
                     player.y = ny;
                 }
@@ -1663,6 +1667,11 @@ function gameLoop() {
     projectiles = projectiles.filter(p => !p.remove);
 
     for (const boar of boars) {
+        if (boar.hp <= 0) {
+            boar.vx = 0;
+            boar.vy = 0;
+            continue;
+        }
         boar.speed = boar.baseSpeed;
         if (boar.bind > 0) { boar.bind--; boar.speed = 0; }
         else if (boar.slow > 0) { boar.slow--; boar.speed = boar.baseSpeed * 0.5; }
@@ -1987,9 +1996,17 @@ function gameLoop() {
             if (ogre.smashTimer <= 0) {
                 const radius = 100;
                 const side = ogre.smashPhase;
+                const smashTargets = [];
                 for (const id in players) {
                     const p = players[id];
                     if (!p.active) continue;
+                    smashTargets.push({ entity: p, type: 'player', id });
+                }
+                for (const z of zombies) {
+                    if (z.ownerId) smashTargets.push({ entity: z, type: 'zombie', id: z.id });
+                }
+                for (const t of smashTargets) {
+                    const p = t.entity;
                     if (side === 'right' && p.x < ogre.x) continue;
                     if (side === 'left' && p.x > ogre.x) continue;
                     if (getDistance(p, ogre) < radius) {
@@ -2000,9 +2017,15 @@ function gameLoop() {
                         let dmg = 10;
                         if (dayNight.isBloodNight && !ogre.isBoss) dmg *= 1.5;
                         p.hp = Math.max(0, p.hp - dmg);
-                        p.lastHitBy = 'ogre';
-                        const c = [...wss.clients].find(cl => cl.id === id);
-                        if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                        if (t.type === 'player') {
+                            p.lastHitBy = 'ogre';
+                            const c = [...wss.clients].find(cl => cl.id === t.id);
+                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                        } else {
+                            p.aggressive = true;
+                            p.target = { type: 'ogre', id: ogre.id };
+                            broadcast({ type: 'zombie-update', zombie: p });
+                        }
                     }
                 }
                 if (ogre.smashPhase === 'right') {
@@ -2027,8 +2050,16 @@ function gameLoop() {
                 targetData = { entity: p, type: 'player', id };
             }
         }
+        for (const z of zombies) {
+            if (!z.ownerId) continue;
+            const d = getDistance(z, ogre);
+            if (d < minDist) {
+                minDist = d;
+                targetData = { entity: z, type: 'zombie', id: z.id };
+            }
+        }
         if (targetData) {
-            ogre.target = { type: 'player', id: targetData.id };
+            ogre.target = { type: targetData.type, id: targetData.id };
             ogre.wanderTimer = 0;
             const dist = minDist;
             moveToward(ogre, targetData.entity);
