@@ -326,7 +326,6 @@ function levelUp(player, ws) {
         player.maxMana += 20;
         player.mana += 20;
         player.manaRegen = (player.manaRegen || 0) + (0.5 / 60);
-        player.canSlow = true;
     }
     sendLevelUpdate(ws, player);
 }
@@ -498,6 +497,7 @@ wss.on('connection', ws => {
         attackRange: 0,
         dashCooldown: 0,
         whirlwindCooldown: 0,
+        whirlwindTime: 0,
         dashVX: 0,
         dashVY: 0,
         dashTime: 0,
@@ -828,6 +828,7 @@ wss.on('connection', ws => {
             case 'knight-whirlwind': {
                 if (player.class === 'knight' && player.knightSkills && player.knightSkills['knight-whirlwind'] && player.whirlwindCooldown <= 0) {
                     player.whirlwindCooldown = 180;
+                    player.whirlwindTime = 20;
                     handleWhirlwindDamage(player, playerId);
                 }
                 break;
@@ -1081,7 +1082,7 @@ function gameLoop() {
             else if (proj.targetType === 'ogre') target = ogres.find(o => o.id === proj.targetId);
             if (target) {
                 const angle = Math.atan2(target.y - proj.y, target.x - proj.x);
-                const speed = 6;
+                const speed = 2;
                 proj.vx = Math.cos(angle) * speed;
                 proj.vy = Math.sin(angle) * speed;
             } else {
@@ -1564,6 +1565,7 @@ function gameLoop() {
         if (p.invulnerable && p.invulnerable > 0) p.invulnerable--;
         if (p.dashCooldown && p.dashCooldown > 0) p.dashCooldown--;
         if (p.whirlwindCooldown && p.whirlwindCooldown > 0) p.whirlwindCooldown--;
+        if (p.whirlwindTime && p.whirlwindTime > 0) p.whirlwindTime--;
         if (p.dashTime && p.dashTime > 0) {
             p.x = Math.max(0, Math.min(WORLD_WIDTH, p.x + p.dashVX));
             p.y = Math.max(0, Math.min(WORLD_HEIGHT, p.y + p.dashVY));

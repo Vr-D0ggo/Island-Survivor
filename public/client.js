@@ -31,7 +31,7 @@ let ogres = [];
 let groundItems = [];
 let projectiles = [];
 let selectedMageSpell = 'slow';
-let selectedKnightAbility = 'sword';
+let selectedKnightAbility = 'non';
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -195,7 +195,7 @@ canvas.addEventListener('mousemove', e => {
 
 // --- Helper Functions ---
 function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
-function initializePlayerForRender(player) { if (player) { player.renderX = player.x; player.renderY = player.y; } }
+function initializePlayerForRender(player) { if (player) { player.renderX = player.x; player.renderY = player.y; player.spinAngle = player.spinAngle || 0; } }
 function createItemIconCanvas(name) {
     const c = document.createElement('canvas');
     c.width = c.height = 32;
@@ -309,11 +309,11 @@ function updateAbilityIndicator() {
         abilityIndicator.textContent = `Spell: ${labelMap[selectedMageSpell]}`;
         abilityIndicator.classList.remove('hidden');
     } else if (me.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
-        const abilities = ['sword'];
-        if (me.knightSkills['knight-shield']) abilities.push('shield');
+        const abilities = ['non'];
+        if (me.knightSkills['knight-shield']) abilities.push('dash');
         if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
         if (!abilities.includes(selectedKnightAbility)) selectedKnightAbility = abilities[0];
-        const labelMap = { sword: 'Sword', shield: 'Shield', whirlwind: 'Whirlwind' };
+        const labelMap = { non: 'Non', dash: 'Dash', whirlwind: 'Whirlwind' };
         abilityIndicator.textContent = `Ability: ${labelMap[selectedKnightAbility]}`;
         abilityIndicator.classList.remove('hidden');
     } else {
@@ -428,6 +428,7 @@ socket.onmessage = event => {
                     clientPlayer.canMissile = serverPlayer.canMissile;
                     clientPlayer.dashCooldown = serverPlayer.dashCooldown || 0;
                     clientPlayer.whirlwindCooldown = serverPlayer.whirlwindCooldown || 0;
+                    clientPlayer.whirlwindTime = serverPlayer.whirlwindTime || 0;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
@@ -810,10 +811,16 @@ function drawPlayer(player, isMe) {
     ctx.lineWidth = 3;
     ctx.stroke();
     let angle = 0;
-    if (isMe) {
-        angle = Math.atan2(mousePos.y - (y - camera.y), mousePos.x - (x - camera.x));
-    } else if (player.targetX !== undefined) {
-        angle = Math.atan2(player.targetY - y, player.targetX - x);
+    if (player.whirlwindTime && player.whirlwindTime > 0) {
+        player.spinAngle = (player.spinAngle || 0) + 0.5;
+        angle = player.spinAngle;
+    } else {
+        if (isMe) {
+            angle = Math.atan2(mousePos.y - (y - camera.y), mousePos.x - (x - camera.x));
+        } else if (player.targetX !== undefined) {
+            angle = Math.atan2(player.targetY - y, player.targetX - x);
+        }
+        player.spinAngle = angle;
     }
     const eyeAngle = angle + Math.PI / 2;
     const eyeOffset = player.size * 0.4;
@@ -1040,7 +1047,19 @@ function drawProjectile(p) {
     } else if (p.type === 'arrow') {
         ctx.drawImage(arrowImg, p.x - 8, p.y - 8, 16, 16);
     } else if (p.type === 'missile') {
-        ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
+        const ang = Math.atan2(p.vy, p.vx);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(ang);
+        ctx.fillStyle = 'gray';
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.moveTo(6, -4);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(6, 4);
+        ctx.fill();
+        ctx.restore();
     } else {
         ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
     }
@@ -1263,8 +1282,8 @@ window.addEventListener('wheel', e => {
             updateAbilityIndicator();
             e.preventDefault();
         } else if (me?.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
-            const abilities = ['sword'];
-            if (me.knightSkills['knight-shield']) abilities.push('shield');
+            const abilities = ['non'];
+            if (me.knightSkills['knight-shield']) abilities.push('dash');
             if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
             let idx = abilities.indexOf(selectedKnightAbility);
             idx = (idx + (e.deltaY > 0 ? 1 : -1) + abilities.length) % abilities.length;
@@ -1295,11 +1314,12 @@ window.addEventListener('keydown', e => {
                     if (t) socket.send(JSON.stringify({ type: 'cast-missile', targetType: t.type, targetId: t.id }));
                 }
             } else if (me.class === 'knight' && me.knightSkills) {
-                if (selectedKnightAbility === 'shield' && me.knightSkills['knight-shield']) {
+                if (selectedKnightAbility === 'dash' && me.knightSkills['knight-shield']) {
                     const targetX = mousePos.x + camera.x;
                     const targetY = mousePos.y + camera.y;
                     socket.send(JSON.stringify({ type: 'shield-dash', targetX, targetY }));
                 } else if (selectedKnightAbility === 'whirlwind' && me.knightSkills['knight-whirlwind'] && (!me.whirlwindCooldown || me.whirlwindCooldown <= 0)) {
+                    players[myPlayerId].whirlwindTime = 20;
                     socket.send(JSON.stringify({ type: 'knight-whirlwind' }));
                 }
             }
