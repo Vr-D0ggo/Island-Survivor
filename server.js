@@ -11,7 +11,12 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static('public'));
 
 // --- Game Constants ---
-const WORLD_WIDTH = 3000;
+// Original play field was 3000x3000.  We extend the world horizontally to
+// include a second "light" zone of the same size to the east.  The first half
+// keeps the regular grass while the new half has lighter grass and sparse
+// resources.
+const OLD_WORLD_WIDTH = 3000;
+const WORLD_WIDTH = OLD_WORLD_WIDTH * 2;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50;
 const BLOCK_SUBDIVISIONS = 2;
@@ -48,8 +53,12 @@ let groundItems = [];
 let nextItemId = 0;
 let projectiles = [];
 let nextProjectileId = 0;
-let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
-let blockGrid = Array(WORLD_WIDTH / BLOCK_SIZE).fill(null).map(() => Array(WORLD_HEIGHT / BLOCK_SIZE).fill(false));
+let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE)
+    .fill(null)
+    .map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
+let blockGrid = Array(WORLD_WIDTH / BLOCK_SIZE)
+    .fill(null)
+    .map(() => Array(WORLD_HEIGHT / BLOCK_SIZE).fill(false));
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
 
 // --- World Generation ---
@@ -58,9 +67,12 @@ function markArea(gridX, gridY, size, isOccupied) { for (let x = gridX; x < grid
 
 function generateWorld() {
     console.log("Generating world with safe spawn zone...");
-    const gridWidth = WORLD_WIDTH / GRID_CELL_SIZE, gridHeight = WORLD_HEIGHT / GRID_CELL_SIZE;
-    const worldCenter = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
-    const placeResource = (type, count, sizes) => {
+    const gridWidth = WORLD_WIDTH / GRID_CELL_SIZE;
+    const gridHeight = WORLD_HEIGHT / GRID_CELL_SIZE;
+    // Keep the safe spawn zone centred in the original area.
+    const worldCenter = { x: OLD_WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
+
+    const placeResource = (type, count, sizes, xMin = 0, xMax = WORLD_WIDTH) => {
         let placed = 0;
         while (placed < count) {
             const size = sizes[Math.floor(Math.random() * sizes.length)];
@@ -68,18 +80,40 @@ function generateWorld() {
             const gridY = Math.floor(Math.random() * (gridHeight - size));
             const worldX = (gridX + size / 2) * GRID_CELL_SIZE;
             const worldY = (gridY + size / 2) * GRID_CELL_SIZE;
-            if (getDistance({x: worldX, y: worldY}, worldCenter) < SAFE_SPAWN_RADIUS) continue;
+            if (worldX < xMin || worldX > xMax) continue;
+            if (getDistance({ x: worldX, y: worldY }, worldCenter) < SAFE_SPAWN_RADIUS)
+                continue;
             if (isAreaFree(gridX, gridY, size)) {
                 markArea(gridX, gridY, size, true);
                 const hpBase = type === 'tree' ? 5 : 6;
                 const maxHp = hpBase * size;
-                resources.push({ id: nextResourceId++, type, x: worldX, y: worldY, hp: maxHp, maxHp, harvested: false, size: size * GRID_CELL_SIZE * 0.8, phase: 1, apples: type === 'tree' && Math.random() < 1/40 ? 1 + Math.floor(Math.random()*4) : 0 });
+                resources.push({
+                    id: nextResourceId++,
+                    type,
+                    x: worldX,
+                    y: worldY,
+                    hp: maxHp,
+                    maxHp,
+                    harvested: false,
+                    size: size * GRID_CELL_SIZE * 0.8,
+                    phase: 1,
+                    apples:
+                        type === 'tree' && Math.random() < 1 / 40
+                            ? 1 + Math.floor(Math.random() * 4)
+                            : 0,
+                });
                 placed++;
             }
         }
     };
-    placeResource('tree', 150, [2, 3]);
-    placeResource('rock', 90, [1, 2, 3]);
+
+    // Dense resources in original area
+    placeResource('tree', 150, [2, 3], 0, OLD_WORLD_WIDTH);
+    placeResource('rock', 90, [1, 2, 3], 0, OLD_WORLD_WIDTH);
+    // Sparse resources in the new lighter area
+    placeResource('tree', 30, [2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
+    placeResource('rock', 15, [1, 2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
+
     console.log(`Generated ${resources.length} resources.`);
     spawnBoars(10);
     spawnZombies(5);
@@ -203,21 +237,40 @@ function spawnZombies(count) {
 }
 
 function createOgre(x, y) {
-    const size = 25;
-    const hp = 50; // 5x player health
-    return { id: nextOgreId++, x, y, hp, maxHp: hp, size, baseSpeed: 1, speed: 1, cooldown: 0, vx: 0, vy: 0, target: null, fireCooldown: 0, burn: 0, slow: 0, bind: 0, wanderTimer: 0, angle: 0, facing: 0 };
+    // Rock golem boss
+    const size = 40;
+    const hp = 150;
+    return {
+        id: nextOgreId++,
+        x,
+        y,
+        hp,
+        maxHp: hp,
+        size,
+        baseSpeed: 0.6,
+        speed: 0.6,
+        cooldown: 0,
+        smashCooldown: 0,
+        smashPhase: null,
+        smashTimer: 0,
+        vx: 0,
+        vy: 0,
+        target: null,
+        burn: 0,
+        slow: 0,
+        bind: 0,
+        wanderTimer: 0,
+        angle: 0,
+        facing: 0,
+    };
 }
 
 function spawnOgres(count) {
-    const corners = [
-        { x: 50, y: 50 },
-        { x: 50, y: WORLD_HEIGHT - 50 },
-        { x: WORLD_WIDTH - 50, y: 50 },
-        { x: WORLD_WIDTH - 50, y: WORLD_HEIGHT - 50 }
-    ];
+    // Spawn the rock golem in the centre of the new eastern area.
     for (let i = 0; i < count; i++) {
-        const corner = corners[Math.floor(Math.random() * corners.length)];
-        ogres.push(createOgre(corner.x, corner.y));
+        const x = OLD_WORLD_WIDTH + OLD_WORLD_WIDTH / 2;
+        const y = WORLD_HEIGHT / 2;
+        ogres.push(createOgre(x, y));
     }
 }
 
@@ -941,7 +994,18 @@ wss.on('connection', ws => {
                 if (player.class === 'rogue' && player.canBomb) {
                     const { targetX, targetY } = data;
                     if (typeof targetX === 'number' && typeof targetY === 'number') {
-                        projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'bomb', timer: 60 });
+                        const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                        const speed = 5;
+                        projectiles.push({
+                            id: nextProjectileId++,
+                            x: player.x,
+                            y: player.y,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            owner: playerId,
+                            type: 'bomb',
+                            timer: 60,
+                        });
                     }
                 }
                 break;
@@ -950,7 +1014,19 @@ wss.on('connection', ws => {
                 if (player.class === 'rogue' && player.canSmoke) {
                     const { targetX, targetY } = data;
                     if (typeof targetX === 'number' && typeof targetY === 'number') {
-                        projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'smoke', timer: 300, radius: 80 });
+                        const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                        const speed = 4;
+                        projectiles.push({
+                            id: nextProjectileId++,
+                            x: player.x,
+                            y: player.y,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            owner: playerId,
+                            type: 'smoke',
+                            timer: 300,
+                            radius: 80,
+                        });
                     }
                 }
                 break;
@@ -1204,47 +1280,94 @@ function gameLoop() {
     }
 
     for (const proj of projectiles) {
-        if (proj.type === 'bomb') {
+        if (proj.type === 'bomb' || proj.type === 'smoke') {
             proj.timer--;
+            proj.x += proj.vx;
+            proj.y += proj.vy;
+
+            // Bounce off world bounds
+            if (proj.x < 0 || proj.x > WORLD_WIDTH) {
+                proj.vx *= -1;
+                proj.x = Math.max(0, Math.min(WORLD_WIDTH, proj.x));
+            }
+            if (proj.y < 0 || proj.y > WORLD_HEIGHT) {
+                proj.vy *= -1;
+                proj.y = Math.max(0, Math.min(WORLD_HEIGHT, proj.y));
+            }
+
+            // Bounce off players and mobs
+            const entities = [];
+            for (const id in players) {
+                const p = players[id];
+                if (p.active) entities.push({ x: p.x, y: p.y, size: p.size });
+            }
+            entities.push(...boars, ...zombies, ...ogres);
+            for (const e of entities) {
+                if (getDistance(e, proj) < e.size) {
+                    const speed = Math.hypot(proj.vx, proj.vy);
+                    const ang = Math.atan2(proj.y - e.y, proj.x - e.x);
+                    proj.vx = Math.cos(ang) * speed;
+                    proj.vy = Math.sin(ang) * speed;
+                    proj.x = e.x + Math.cos(ang) * (e.size + 1);
+                    proj.y = e.y + Math.sin(ang) * (e.size + 1);
+                }
+            }
+            for (const key in structures) {
+                const s = structures[key];
+                if (s.type === 'wood_wall' || s.type === 'stone_wall') {
+                    if (
+                        proj.x >= s.x &&
+                        proj.x <= s.x + s.size &&
+                        proj.y >= s.y &&
+                        proj.y <= s.y + s.size
+                    ) {
+                        proj.vx *= -1;
+                        proj.vy *= -1;
+                        if (proj.x < s.x) proj.x = s.x - 1;
+                        if (proj.x > s.x + s.size) proj.x = s.x + s.size + 1;
+                        if (proj.y < s.y) proj.y = s.y - 1;
+                        if (proj.y > s.y + s.size) proj.y = s.y + s.size + 1;
+                    }
+                }
+            }
+
             if (proj.timer <= 0) {
-                const radius = 40;
-                const damage = 4;
-                for (const id in players) {
-                    const p = players[id];
-                    if (!p.active) continue;
-                    if (getDistance(p, proj) < radius) {
-                        p.hp = Math.max(0, p.hp - damage);
-                        p.lastHitBy = proj.owner || 'ogre';
-                        const c = [...wss.clients].find(cl => cl.id === id);
-                        if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                if (proj.type === 'bomb') {
+                    const radius = 40;
+                    const damage = 4;
+                    for (const id in players) {
+                        const p = players[id];
+                        if (!p.active) continue;
+                        if (getDistance(p, proj) < radius) {
+                            p.hp = Math.max(0, p.hp - damage);
+                            p.lastHitBy = proj.owner || 'ogre';
+                            const c = [...wss.clients].find(cl => cl.id === id);
+                            if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                        }
                     }
-                }
-                for (const boar of boars) {
-                    if (getDistance(boar, proj) < radius) {
-                        boar.hp = Math.max(0, boar.hp - damage);
-                        boar.aggressive = true;
-                        broadcast({ type: 'boar-update', boar });
+                    for (const boar of boars) {
+                        if (getDistance(boar, proj) < radius) {
+                            boar.hp = Math.max(0, boar.hp - damage);
+                            boar.aggressive = true;
+                            broadcast({ type: 'boar-update', boar });
+                        }
                     }
-                }
-                for (const zombie of zombies) {
-                    if (getDistance(zombie, proj) < radius) {
-                        zombie.hp = Math.max(0, zombie.hp - damage);
-                        zombie.aggressive = true;
-                        broadcast({ type: 'zombie-update', zombie });
+                    for (const zombie of zombies) {
+                        if (getDistance(zombie, proj) < radius) {
+                            zombie.hp = Math.max(0, zombie.hp - damage);
+                            zombie.aggressive = true;
+                            broadcast({ type: 'zombie-update', zombie });
+                        }
                     }
-                }
-                for (const ogre of ogres) {
-                    if (getDistance(ogre, proj) < radius) {
-                        ogre.hp = Math.max(0, ogre.hp - damage);
-                        broadcast({ type: 'ogre-update', ogre });
+                    for (const ogre of ogres) {
+                        if (getDistance(ogre, proj) < radius) {
+                            ogre.hp = Math.max(0, ogre.hp - damage);
+                            broadcast({ type: 'ogre-update', ogre });
+                        }
                     }
                 }
                 proj.remove = true;
             }
-            continue;
-        } else if (proj.type === 'smoke') {
-            proj.timer--;
-            if (proj.timer <= 0) proj.remove = true;
             continue;
         }
         if (proj.type === 'missile' && proj.targetType) {
@@ -1665,14 +1788,51 @@ function gameLoop() {
         if (ogre.bind > 0) { ogre.bind--; ogre.speed = 0; }
         else if (ogre.slow > 0) { ogre.slow--; ogre.speed = ogre.baseSpeed * 0.5; }
         if (ogre.cooldown > 0) ogre.cooldown--;
-        if (ogre.fireCooldown > 0) ogre.fireCooldown--;
+        if (ogre.smashCooldown > 0) ogre.smashCooldown--;
+
+        // Handle ongoing smash animation phases
+        if (ogre.smashPhase) {
+            ogre.smashTimer--;
+            if (ogre.smashTimer <= 0) {
+                const radius = 100;
+                const side = ogre.smashPhase;
+                for (const id in players) {
+                    const p = players[id];
+                    if (!p.active) continue;
+                    if (side === 'right' && p.x < ogre.x) continue;
+                    if (side === 'left' && p.x > ogre.x) continue;
+                    if (getDistance(p, ogre) < radius) {
+                        const angle = Math.atan2(p.y - ogre.y, p.x - ogre.x);
+                        const knock = 50;
+                        p.x += Math.cos(angle) * knock;
+                        p.y += Math.sin(angle) * knock;
+                        p.hp = Math.max(0, p.hp - 10);
+                        p.lastHitBy = 'ogre';
+                        const c = [...wss.clients].find(cl => cl.id === id);
+                        if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
+                    }
+                }
+                if (ogre.smashPhase === 'right') {
+                    ogre.smashPhase = 'left';
+                    ogre.smashTimer = 15;
+                } else {
+                    ogre.smashPhase = null;
+                    ogre.smashCooldown = 180;
+                }
+            }
+            continue; // no movement while smashing
+        }
+
         let targetData = null;
         let minDist = Infinity;
         for (const id in players) {
             const p = players[id];
             if (!p.active) continue;
             const d = getDistance(p, ogre);
-            if (d < minDist) { minDist = d; targetData = { entity: p, type: 'player', id }; }
+            if (d < minDist) {
+                minDist = d;
+                targetData = { entity: p, type: 'player', id };
+            }
         }
         if (targetData) {
             ogre.target = { type: 'player', id: targetData.id };
@@ -1680,25 +1840,9 @@ function gameLoop() {
             const dist = minDist;
             moveToward(ogre, targetData.entity);
             ogre.facing = Math.atan2(ogre.vy, ogre.vx);
-            if (dist < 300 && hasLineOfSight(ogre, targetData.entity) && ogre.fireCooldown <= 0) {
-                const angle = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
-                ogre.facing = angle;
-                const speed = 4;
-                const spawnDist = ogre.size + 5;
-                const sx = ogre.x + Math.cos(angle) * spawnDist;
-                const sy = ogre.y + Math.sin(angle) * spawnDist;
-                projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
-                ogre.fireCooldown = 90;
-            }
-            if (dist < ogre.size + (targetData.entity.size || 10) + 10 && ogre.cooldown <= 0 && hasLineOfSight(ogre, targetData.entity)) {
-                if (targetData.entity.invulnerable <= 0) {
-                    const dmg = Math.floor((targetData.entity.maxHp || 10) / 2);
-                    targetData.entity.hp = Math.max(0, targetData.entity.hp - dmg);
-                    targetData.entity.lastHitBy = 'ogre';
-                    const c = [...wss.clients].find(cl => cl.id === targetData.id);
-                    if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetData.entity.hp }));
-                }
-                ogre.cooldown = 90;
+            if (dist < 120 && ogre.smashCooldown <= 0) {
+                ogre.smashPhase = 'right';
+                ogre.smashTimer = 15;
             }
         } else {
             ogre.target = null;
