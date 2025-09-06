@@ -13,6 +13,12 @@ const socket = new WebSocket(`${protocol}://${window.location.host}`);
 socket.onopen = () => console.log("✅ WebSocket connection established successfully!");
 socket.onerror = (error) => console.error("❌ WebSocket Error:", error);
 
+function safeSend(data) {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(data));
+    }
+}
+
 // --- Audio Handling ---
 const morningMusic = new Audio('/morning.mp3'); morningMusic.loop = true;
 const nightMusic = new Audio('/night.mp3'); nightMusic.loop = true;
@@ -1114,6 +1120,12 @@ function drawZombie(zombie) {
     } else if (zombie.kind === 'spirit') {
         bodyColor = 'rgba(150,255,255,0.8)';
         eyeColor = '#fff';
+    } else if (zombie.kind === 'tree') {
+        bodyColor = '#39ff14';
+        eyeColor = '#003300';
+    } else if (zombie.kind === 'big') {
+        bodyColor = '#228B22';
+        eyeColor = '#fff';
     }
     ctx.fillStyle = bodyColor;
     ctx.fill();
@@ -1532,41 +1544,41 @@ window.addEventListener('keydown', e => {
         if (e.code === 'Space') {
             if (me.class === 'summoner') {
                 if (me.mana >= 100) {
-                    socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+                    safeSend({ type: 'spawn-minion', minionType: summonerSpawnType });
                 }
             } else if (me.class === 'mage') {
                 const targetX = mousePos.x + camera.x;
                 const targetY = mousePos.y + camera.y;
                 if (selectedMageSpell === 'bind' && me.canBind) {
-                    socket.send(JSON.stringify({ type: 'cast-bind', targetX, targetY }));
+                    safeSend({ type: 'cast-bind', targetX, targetY });
                 } else if (selectedMageSpell === 'slow' && me.canSlow) {
-                    socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
+                    safeSend({ type: 'cast-slow', targetX, targetY });
                 } else if (selectedMageSpell === 'missile' && me.canMissile && me.mana >= 75) {
-                    socket.send(JSON.stringify({ type: 'cast-missile' }));
+                    safeSend({ type: 'cast-missile' });
                 }
             } else if (me.class === 'knight' && me.knightSkills) {
                 if (selectedKnightAbility === 'dash' && me.knightSkills['knight-shield']) {
                     const targetX = mousePos.x + camera.x;
                     const targetY = mousePos.y + camera.y;
-                    socket.send(JSON.stringify({ type: 'shield-dash', targetX, targetY }));
+                    safeSend({ type: 'shield-dash', targetX, targetY });
                 } else if (selectedKnightAbility === 'whirlwind' && me.knightSkills['knight-whirlwind'] && (!me.whirlwindCooldown || me.whirlwindCooldown <= 0)) {
                     players[myPlayerId].whirlwindTime = 20;
-                    socket.send(JSON.stringify({ type: 'knight-whirlwind' }));
+                    safeSend({ type: 'knight-whirlwind' });
                 }
             } else if (me.class === 'rogue') {
                 const targetX = mousePos.x + camera.x;
                 const targetY = mousePos.y + camera.y;
                 if (selectedRogueAbility === 'bomb' && me.canBomb) {
-                    socket.send(JSON.stringify({ type: 'rogue-bomb', targetX, targetY }));
+                    safeSend({ type: 'rogue-bomb', targetX, targetY });
                 } else if (selectedRogueAbility === 'smoke' && me.canSmoke) {
-                    socket.send(JSON.stringify({ type: 'rogue-smoke', targetX, targetY }));
+                    safeSend({ type: 'rogue-smoke', targetX, targetY });
                 } else if (selectedRogueAbility === 'teleport' && me.canTeleport) {
                     me.x = targetX;
                     me.y = targetY;
-                    socket.send(JSON.stringify({ type: 'rogue-teleport', targetX, targetY }));
-                    socket.send(JSON.stringify({ type: 'move', x: me.x, y: me.y }));
+                    safeSend({ type: 'rogue-teleport', targetX, targetY });
+                    safeSend({ type: 'move', x: me.x, y: me.y });
                 } else if (selectedRogueAbility === 'bow') {
-                    socket.send(JSON.stringify({ type: 'shoot-arrow', targetX, targetY }));
+                    safeSend({ type: 'shoot-arrow', targetX, targetY });
                 }
             }
             e.preventDefault();
