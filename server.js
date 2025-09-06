@@ -114,6 +114,19 @@ function generateWorld() {
     placeResource('tree', 30, [2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
     placeResource('rock', 15, [1, 2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
 
+    // Wall separating woods and plains with a small entrance
+    const wallX = OLD_WORLD_WIDTH - GRID_CELL_SIZE;
+    const gapStart = WORLD_HEIGHT / 2 - GRID_CELL_SIZE;
+    const gapEnd = WORLD_HEIGHT / 2 + GRID_CELL_SIZE;
+    for (let y = 0; y < WORLD_HEIGHT; y += GRID_CELL_SIZE) {
+        if (y >= gapStart && y <= gapEnd) continue;
+        const gridX = Math.floor(wallX / GRID_CELL_SIZE);
+        const gridY = Math.floor(y / GRID_CELL_SIZE);
+        const key = `w${gridX},${gridY}`;
+        structures[key] = { type: 'stone_wall', x: gridX * GRID_CELL_SIZE, y, size: GRID_CELL_SIZE };
+        markArea(gridX, gridY, 1, true);
+    }
+
     console.log(`Generated ${resources.length} resources.`);
     spawnBoars(10);
     spawnZombies(5);
@@ -591,7 +604,7 @@ function isInShadow(entity) {
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
     ws.id = playerId;
-    const { x: spawnX, y: spawnY } = getFreePosition();
+    const { x: spawnX, y: spawnY } = getSpawnPositionAround(OLD_WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 50);
     const newPlayer = {
         id: playerId,
         name: 'Survivor',
@@ -609,6 +622,8 @@ wss.on('connection', ws => {
         burn: 0,
         slow: 0,
         eyeColor: '#ccc',
+        mouth: 'line',
+        mouthColor: '#000',
         mana: 100,
         maxMana: 100,
         manaRegen: 0,
@@ -686,6 +701,8 @@ wss.on('connection', ws => {
                 if (typeof data.name === 'string') player.name = data.name.slice(0, 20);
                 if (typeof data.color === 'string') player.color = data.color;
                 if (typeof data.eyeColor === 'string') player.eyeColor = data.eyeColor;
+                if (typeof data.mouth === 'string') player.mouth = data.mouth;
+                if (typeof data.mouthColor === 'string') player.mouthColor = data.mouthColor;
                 if (!player.active) {
                     player.active = true;
                     player.x = player.spawnX;
@@ -1852,6 +1869,14 @@ function gameLoop() {
         if (!isBlocked(nx, ny, ogre.size) && !collidesWithEntities(nx, ny, ogre.size, ogre)) {
             ogre.x = nx;
             ogre.y = ny;
+        }
+        // Destroy resources the golem moves through
+        for (const r of resources) {
+            if (!r.harvested && getDistance(r, ogre) < ogre.size + (r.size / 2)) {
+                r.harvested = true;
+                r.hp = 0;
+                broadcast({ type: 'resource-update', resource: r });
+            }
         }
         ogre.x = Math.max(0, Math.min(WORLD_WIDTH, ogre.x));
         ogre.y = Math.max(0, Math.min(WORLD_HEIGHT, ogre.y));

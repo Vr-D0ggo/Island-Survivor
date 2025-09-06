@@ -120,10 +120,27 @@
     <div id="pre-spawn-screen" class="hidden">
         <h2>Choose your name</h2>
         <input type="text" id="name-input" maxlength="20">
-        <h2>Choose your color</h2>
-        <input type="color" id="color-input" value="#ff0000">
-        <h2>Choose your eye color</h2>
-        <input type="color" id="eye-color-input" value="#cccccc">
+        <button id="customize-btn">Customize Character</button>
+        <div id="customization-panel" class="hidden">
+            <div class="options">
+                <h3>Color</h3>
+                <input type="color" id="color-input" value="#ff0000">
+                <h3>Eye Color</h3>
+                <input type="color" id="eye-color-input" value="#cccccc">
+                <h3>Mouth Type</h3>
+                <select id="mouth-select">
+                    <option value="line">Line</option>
+                    <option value="square">Square</option>
+                    <option value="circle">Circle</option>
+                    <option value="oval">Oval</option>
+                    <option value="diamond">Diamond</option>
+                    <option value="triangle">Triangle</option>
+                </select>
+                <h3>Mouth Color</h3>
+                <input type="color" id="mouth-color-input" value="#000000">
+            </div>
+            <canvas id="preview-canvas" width="100" height="100"></canvas>
+        </div>
         <button id="start-btn">Start</button>
     </div>
 
