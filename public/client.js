@@ -97,6 +97,7 @@ const furnaceCookBtn = document.getElementById('furnace-cook-btn');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 const healthFill = document.getElementById('player-health-fill');
 const manaFill = document.getElementById('player-mana-fill');
+const manaBar = document.getElementById('player-mana-bar');
 const deathScreen = document.getElementById('death-screen');
 const deathMessage = document.getElementById('death-message');
 const respawnBtn = document.getElementById('respawn-btn');
@@ -104,6 +105,7 @@ const menuBtn = document.getElementById('menu-btn');
 const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
 const colorInput = document.getElementById('color-input');
+const eyeColorInput = document.getElementById('eye-color-input');
 const startBtn = document.getElementById('start-btn');
 const controlsScreen = document.getElementById('controls-screen');
 const controlsBtn = document.getElementById('controls-btn');
@@ -189,7 +191,7 @@ classButtons.forEach(btn => {
         const cls = btn.dataset.class;
         classScreen.classList.add('hidden');
         preSpawn = false;
-        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value }));
+        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value, eyeColor: eyeColorInput.value }));
         socket.send(JSON.stringify({ type: 'set-class', class: cls }));
     };
 });
@@ -237,8 +239,13 @@ function updatePlayerHealthBar() {
 
 function updatePlayerManaBar() {
     const me = players[myPlayerId];
-    if (me && manaFill) {
-        manaFill.style.height = `${(me.mana / me.maxMana) * 100}%`;
+    if (me && manaFill && manaBar) {
+        if (me.maxMana > 0) {
+            manaBar.classList.remove('hidden');
+            manaFill.style.height = `${(me.mana / me.maxMana) * 100}%`;
+        } else {
+            manaBar.classList.add('hidden');
+        }
     }
 }
 
@@ -455,6 +462,7 @@ socket.onmessage = event => {
                     clientPlayer.canTeleport = serverPlayer.canTeleport;
                     clientPlayer.rogueSkills = serverPlayer.rogueSkills || {};
                     clientPlayer.color = serverPlayer.color;
+                    clientPlayer.eyeColor = serverPlayer.eyeColor || '#ccc';
                     clientPlayer.dashCooldown = serverPlayer.dashCooldown || 0;
                     clientPlayer.whirlwindCooldown = serverPlayer.whirlwindCooldown || 0;
                     clientPlayer.whirlwindTime = serverPlayer.whirlwindTime || 0;
@@ -860,7 +868,7 @@ function drawPlayer(player, isMe) {
     ctx.beginPath();
     ctx.arc(x + ex, y + ey, player.size * 0.2, 0, Math.PI * 2);
     ctx.arc(x - ex, y - ey, player.size * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = '#ccc';
+    ctx.fillStyle = player.eyeColor || '#ccc';
     ctx.fill();
     const nx = Math.cos(angle) * player.size * 0.6;
     const ny = Math.sin(angle) * player.size * 0.6;
@@ -1375,7 +1383,10 @@ window.addEventListener('keydown', e => {
                 if (selectedRogueAbility === 'bomb' && me.canBomb) {
                     socket.send(JSON.stringify({ type: 'rogue-bomb', targetX, targetY }));
                 } else if (selectedRogueAbility === 'teleport' && me.canTeleport) {
+                    me.x = targetX;
+                    me.y = targetY;
                     socket.send(JSON.stringify({ type: 'rogue-teleport', targetX, targetY }));
+                    socket.send(JSON.stringify({ type: 'move', x: me.x, y: me.y }));
                 } else if (selectedRogueAbility === 'bow') {
                     socket.send(JSON.stringify({ type: 'shoot-arrow', targetX, targetY }));
                 }
