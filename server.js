@@ -252,8 +252,32 @@ function findNearestTarget(player) {
     }
     return nearest;
 }
-function countItems(player, itemName) { let t = 0; [...player.inventory, ...player.hotbar].forEach(s => { if (s && s.item === itemName) t += s.quantity; }); return t; }
-function consumeItems(player, itemName, amount) { let r = amount; const c = (s) => { if (s && s.item === itemName && r > 0) { const t = Math.min(r, s.quantity); s.quantity -= t; r -= t; if (s.quantity <= 0) return null; } return s; }; player.inventory = player.inventory.map(c); player.hotbar = player.hotbar.map(c); }
+// Count a player's items using an exact name match so crafted items
+// like bows cannot be mistaken for their ingredients (e.g. stone).
+function countItems(player, itemName) {
+    let total = 0;
+    [...player.inventory, ...player.hotbar].forEach(slot => {
+        if (slot && slot.item === itemName) total += slot.quantity;
+    });
+    return total;
+}
+
+// Remove a specific amount of an item from a player, ensuring only the
+// exact item name is consumed.
+function consumeItems(player, itemName, amount) {
+    let remaining = amount;
+    const consumeFrom = (slot) => {
+        if (slot && slot.item === itemName && remaining > 0) {
+            const take = Math.min(remaining, slot.quantity);
+            slot.quantity -= take;
+            remaining -= take;
+            if (slot.quantity <= 0) return null;
+        }
+        return slot;
+    };
+    player.inventory = player.inventory.map(consumeFrom);
+    player.hotbar = player.hotbar.map(consumeFrom);
+}
 function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = [...wss.clients].find(c => c.id === playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
 function handleDashDamage(player, angle, playerId) {
     const dmg = 3 + (player.swordDamage || 0);
@@ -425,6 +449,22 @@ function isBlocked(x, y, size) {
     return false;
 }
 
+// Simple line-of-sight check used by mobs when acquiring targets.
+// Steps along the line between two points and returns false if a
+// blocking tile or structure is encountered.
+function hasLineOfSight(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const steps = Math.ceil(dist / BLOCK_SIZE);
+    for (let i = 1; i < steps; i++) {
+        const x = a.x + (dx * i) / steps;
+        const y = a.y + (dy * i) / steps;
+        if (isBlocked(x, y, BLOCK_SIZE / 2)) return false;
+    }
+    return true;
+}
+
 function collidesWithEntities(x, y, size, self) {
     for (const id in players) {
         const p = players[id];
@@ -513,6 +553,7 @@ wss.on('connection', ws => {
         lastHitBy: null,
         burn: 0,
         slow: 0,
+        eyeColor: '#ccc',
         mana: 100,
         maxMana: 100,
         manaRegen: 0,
@@ -588,6 +629,7 @@ wss.on('connection', ws => {
             case 'set-name':
                 if (typeof data.name === 'string') player.name = data.name.slice(0, 20);
                 if (typeof data.color === 'string') player.color = data.color;
+                if (typeof data.eyeColor === 'string') player.eyeColor = data.eyeColor;
                 if (!player.active) {
                     player.active = true;
                     player.x = player.spawnX;
@@ -605,6 +647,10 @@ wss.on('connection', ws => {
                     if (data.class === 'rogue') {
                         addItemToPlayer(playerId, 'Bow', 1);
                         addItemToPlayer(playerId, 'Arrow', 2);
+                        player.mana = 0; player.maxMana = 0; player.manaRegen = 0;
+                    } else if (data.class === 'knight') {
+                        addItemToPlayer(playerId, 'Stone Sword', 1);
+                        player.mana = 0; player.maxMana = 0; player.manaRegen = 0;
                     }
                 }
                 break;
@@ -889,7 +935,9 @@ wss.on('connection', ws => {
             case 'rogue-bomb': {
                 if (player.class === 'rogue' && player.canBomb) {
                     const { targetX, targetY } = data;
-                    projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'bomb', timer: 60 });
+                    if (typeof targetX === 'number' && typeof targetY === 'number') {
+                        projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'bomb', timer: 60 });
+                    }
                 }
                 break;
             }
@@ -1383,13 +1431,17 @@ function gameLoop() {
         if (!boar.aggressive) {
             if (boar.behavior === 'sight') {
                 for (const t of potentialTargets) {
-                    if (getDistance(t.entity, boar) < 150) { boar.aggressive = true; boar.target = { type: t.type, id: t.id }; break; }
+                    if (getDistance(t.entity, boar) < 150 && hasLineOfSight(boar, t.entity)) {
+                        boar.aggressive = true; boar.target = { type: t.type, id: t.id }; break;
+                    }
                 }
             } else if (boar.behavior === 'stand') {
                 boar.vx = 0;
                 boar.vy = 0;
                 for (const t of potentialTargets) {
-                    if (getDistance(t.entity, boar) < 80) { boar.aggressive = true; boar.target = { type: t.type, id: t.id }; break; }
+                    if (getDistance(t.entity, boar) < 80 && hasLineOfSight(boar, t.entity)) {
+                        boar.aggressive = true; boar.target = { type: t.type, id: t.id }; break;
+                    }
                 }
             }
         } else {
@@ -1400,7 +1452,7 @@ function gameLoop() {
             if (!target) { boar.aggressive = false; boar.target = null; }
             else {
                 const dist = getDistance(boar, target);
-                if (dist > 200) { boar.aggressive = false; boar.target = null; }
+                if (dist > 200 || !hasLineOfSight(boar, target)) { boar.aggressive = false; boar.target = null; }
                 else {
                     moveToward(boar, target);
                     if (dist < boar.size + target.size && boar.cooldown <= 0) {
@@ -1506,7 +1558,7 @@ function gameLoop() {
                 const dist = Math.hypot(dx, dy);
                 const angleTo = Math.atan2(dy, dx);
                 const diff = Math.abs(Math.atan2(Math.sin(angleTo - zombie.angle), Math.cos(angleTo - zombie.angle)));
-                if (dist < 200 && diff < Math.PI / 4) {
+                if (dist < 200 && diff < Math.PI / 4 && hasLineOfSight(zombie, t.entity)) {
                     zombie.aggressive = true;
                     zombie.target = { type: t.type, id: t.id };
                     detected = true;
@@ -1528,7 +1580,7 @@ function gameLoop() {
             if (!target) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; }
             else {
                 const dist = getDistance(zombie, target);
-                if (!zombie.commanded && dist > 250) { zombie.aggressive = false; zombie.target = null; }
+                if (!zombie.commanded && (dist > 250 || !hasLineOfSight(zombie, target))) { zombie.aggressive = false; zombie.target = null; }
                 else {
                     moveToward(zombie, target);
                     zombie.angle = Math.atan2(zombie.vy, zombie.vx);
@@ -1592,10 +1644,11 @@ function gameLoop() {
         for (const id in players) {
             const p = players[id];
             if (!p.active) continue;
+            if (!hasLineOfSight(ogre, p)) continue;
             const d = getDistance(p, ogre);
             if (d < minDist) { minDist = d; targetData = { entity: p, type: 'player', id }; }
         }
-        if (targetData) {
+        if (targetData && hasLineOfSight(ogre, targetData.entity)) {
             ogre.target = { type: 'player', id: targetData.id };
             ogre.wanderTimer = 0;
             const dist = minDist;
@@ -1621,6 +1674,8 @@ function gameLoop() {
                 }
                 ogre.cooldown = 90;
             }
+        } else {
+            ogre.target = null;
         }
         const nx = ogre.x + ogre.vx;
         const ny = ogre.y + ogre.vy;
