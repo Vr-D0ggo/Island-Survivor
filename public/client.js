@@ -33,6 +33,8 @@ let projectiles = [];
 let selectedMageSpell = 'slow';
 let selectedKnightAbility = 'non';
 let selectedRogueAbility = 'bomb';
+let attackCooldown = 0;
+const ATTACK_COOLDOWN_MAX = 60;
 let camera = { x: 0, y: 0 };
 const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -98,6 +100,8 @@ const chatMessages = document.getElementById('chat-messages'); const chatInput =
 const healthFill = document.getElementById('player-health-fill');
 const manaFill = document.getElementById('player-mana-fill');
 const manaBar = document.getElementById('player-mana-bar');
+const attackFill = document.getElementById('player-attack-fill');
+const attackBar = document.getElementById('player-attack-bar');
 const deathScreen = document.getElementById('death-screen');
 const deathMessage = document.getElementById('death-message');
 const respawnBtn = document.getElementById('respawn-btn');
@@ -156,9 +160,11 @@ const mageSkillPrereqs = {
 };
 const rogueSkillNodes = [
     document.getElementById('skill-rogue-bomb'),
+    document.getElementById('skill-rogue-smoke'),
     document.getElementById('skill-rogue-teleport'),
     document.getElementById('skill-rogue-bow')
 ];
+const rogueSkillPrereqs = { 'rogue-smoke': 'rogue-bomb' };
 
 function orderSkillGroup(group, prereqs) {
     const nodes = Array.from(group.children);
@@ -172,7 +178,7 @@ function orderSkillGroup(group, prereqs) {
 }
 if (knightSkillGroup) orderSkillGroup(knightSkillGroup, knightSkillPrereqs);
 if (mageSkillGroup) orderSkillGroup(mageSkillGroup, mageSkillPrereqs);
-if (rogueSkillGroup) orderSkillGroup(rogueSkillGroup, {});
+if (rogueSkillGroup) orderSkillGroup(rogueSkillGroup, rogueSkillPrereqs);
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
@@ -246,6 +252,16 @@ function updatePlayerManaBar() {
         } else {
             manaBar.classList.add('hidden');
         }
+    }
+}
+
+function updateAttackBar() {
+    if (!attackBar || !attackFill) return;
+    if (attackCooldown > 0) {
+        attackBar.classList.remove('hidden');
+        attackFill.style.height = `${(attackCooldown / ATTACK_COOLDOWN_MAX) * 100}%`;
+    } else {
+        attackBar.classList.add('hidden');
     }
 }
 
@@ -340,11 +356,12 @@ function updateAbilityIndicator() {
     } else if (me.class === 'rogue') {
         const abilities = [];
         if (me.canBomb) abilities.push('bomb');
+        if (me.canSmoke) abilities.push('smoke');
         if (me.canTeleport) abilities.push('teleport');
         if (me.rogueSkills && me.rogueSkills['rogue-bow']) abilities.push('bow');
         if (abilities.length > 0) {
             if (!abilities.includes(selectedRogueAbility)) selectedRogueAbility = abilities[0];
-            const labelMap = { bomb: 'Bomb', teleport: 'Teleport', bow: 'Bow' };
+            const labelMap = { bomb: 'Bomb', smoke: 'Smoke', teleport: 'Teleport', bow: 'Bow' };
             abilityIndicator.textContent = `Ability: ${labelMap[selectedRogueAbility]}`;
             abilityIndicator.classList.remove('hidden');
         } else {
@@ -459,6 +476,7 @@ socket.onmessage = event => {
                     clientPlayer.canBind = serverPlayer.canBind;
                     clientPlayer.canMissile = serverPlayer.canMissile;
                     clientPlayer.canBomb = serverPlayer.canBomb;
+                    clientPlayer.canSmoke = serverPlayer.canSmoke;
                     clientPlayer.canTeleport = serverPlayer.canTeleport;
                     clientPlayer.rogueSkills = serverPlayer.rogueSkills || {};
                     clientPlayer.color = serverPlayer.color;
@@ -717,6 +735,7 @@ function playerMovement() {
 }
 canvas.addEventListener('mousedown', e => {
     if (!myPlayerId || !players[myPlayerId] || e.button !== 0 || preSpawn) return;
+    if (attackCooldown > 0) return;
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left + camera.x;
     const mouseY = e.clientY - rect.top + camera.y;
@@ -757,16 +776,22 @@ canvas.addEventListener('mousedown', e => {
         else if (closestZombie) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'zombie', targetId: closestZombie.id }));
         else if (closestOgre) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'ogre', targetId: closestOgre.id }));
     }
+    let didAttack = false;
     if (closestPlayer) {
         socket.send(JSON.stringify({ type: 'hit-player', targetId: closestPlayer.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestBoar) {
         socket.send(JSON.stringify({ type: 'hit-boar', boarId: closestBoar.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestZombie) {
         socket.send(JSON.stringify({ type: 'hit-zombie', zombieId: closestZombie.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestOgre) {
         socket.send(JSON.stringify({ type: 'hit-ogre', ogreId: closestOgre.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else {
         let key = null;
         const blockX = Math.floor(mouseX / BLOCK_SIZE);
@@ -779,6 +804,10 @@ canvas.addEventListener('mousedown', e => {
             if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
         }
         if (key) socket.send(JSON.stringify({ type: 'hit-structure', key, item: selectedItem ? selectedItem.item : null, hotbarIndex: selectedHotbarSlot }));
+    }
+    if (didAttack) {
+        attackCooldown = ATTACK_COOLDOWN_MAX;
+        updateAttackBar();
     }
 });
 canvas.addEventListener('contextmenu', e => {
@@ -1104,6 +1133,15 @@ function drawProjectile(p) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
         ctx.fill();
+    } else if (p.type === 'smoke') {
+        const radius = p.radius || 60;
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
+        grad.addColorStop(0, 'rgba(128,128,128,0.5)');
+        grad.addColorStop(1, 'rgba(128,128,128,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
     } else {
         ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
     }
@@ -1223,6 +1261,21 @@ function render() {
         });
         ctx.restore();
     }
+    const me = players[myPlayerId];
+    if (me) {
+        for (const p of projectiles) {
+            if (p.type === 'smoke') {
+                const radius = p.radius || 60;
+                if (Math.hypot(me.x - p.x, me.y - p.y) < radius) {
+                    if (me.class !== 'rogue') {
+                        ctx.fillStyle = 'rgba(128,128,128,0.6)';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    }
+                    break;
+                }
+            }
+        }
+    }
     if (deathFadeDir !== 0) {
         deathFade += 0.02 * deathFadeDir;
         if (deathFade >= 1) { deathFade = 1; deathFadeDir = -1; }
@@ -1261,6 +1314,8 @@ function gameLoop() {
         }
         updateSummonerBar();
         updateAbilityIndicator();
+        if (attackCooldown > 0) attackCooldown--;
+        updateAttackBar();
     }
     render();
     requestAnimationFrame(gameLoop);
@@ -1337,6 +1392,7 @@ window.addEventListener('wheel', e => {
         } else if (me?.class === 'rogue') {
             const abilities = [];
             if (me.canBomb) abilities.push('bomb');
+            if (me.canSmoke) abilities.push('smoke');
             if (me.canTeleport) abilities.push('teleport');
             if (me.rogueSkills && me.rogueSkills['rogue-bow']) abilities.push('bow');
             if (abilities.length > 0) {
@@ -1382,6 +1438,8 @@ window.addEventListener('keydown', e => {
                 const targetY = mousePos.y + camera.y;
                 if (selectedRogueAbility === 'bomb' && me.canBomb) {
                     socket.send(JSON.stringify({ type: 'rogue-bomb', targetX, targetY }));
+                } else if (selectedRogueAbility === 'smoke' && me.canSmoke) {
+                    socket.send(JSON.stringify({ type: 'rogue-smoke', targetX, targetY }));
                 } else if (selectedRogueAbility === 'teleport' && me.canTeleport) {
                     me.x = targetX;
                     me.y = targetY;
