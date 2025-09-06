@@ -30,6 +30,7 @@ let zombies = [];
 let ogres = [];
 let groundItems = [];
 let projectiles = [];
+let explosions = [];
 let selectedMageSpell = 'slow';
 let selectedKnightAbility = 'non';
 let selectedRogueAbility = 'bomb';
@@ -608,6 +609,9 @@ socket.onmessage = event => {
             if (idx !== -1) ogres[idx] = data.ogre; else ogres.push(data.ogre);
             break;
         }
+        case 'bomb-explode':
+            explosions.push({ x: data.x, y: data.y, radius: data.radius, timer: 30 });
+            break;
         case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
         case 'player-dead':
             deathFade = 0;
@@ -615,7 +619,8 @@ socket.onmessage = event => {
             preSpawn = true;
             if (deathMessage) {
                 const cause = data.cause || 'unknown';
-                deathMessage.textContent = `You died at the hands of ${cause}`;
+                if (cause === 'ogre') deathMessage.textContent = 'You were crushed by the Rock Monster';
+                else deathMessage.textContent = `You died at the hands of ${cause}`;
             }
             if (deathScreen) deathScreen.classList.remove('hidden');
             break;
@@ -1151,6 +1156,29 @@ function drawOgre(ogre) {
     drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
     ctx.save();
     ctx.translate(ogre.x, ogre.y);
+    const arm1 = ogre.size * 0.8;
+    const arm2 = ogre.size * 0.6;
+    const armWidth = ogre.size / 3;
+    function drawArm(side) {
+        const base = side === 'right' ? 0 : Math.PI;
+        let swing = 0;
+        if (ogre.smashPhase === side) {
+            swing = (1 - ogre.smashTimer / 15) * (side === 'right' ? Math.PI / 2 : -Math.PI / 2);
+        }
+        const a1 = base + swing;
+        const elbow = { x: Math.cos(a1) * arm1, y: Math.sin(a1) * arm1 };
+        const hand = { x: elbow.x + Math.cos(a1) * arm2, y: elbow.y + Math.sin(a1) * arm2 };
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = armWidth;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(elbow.x, elbow.y);
+        ctx.lineTo(hand.x, hand.y);
+        ctx.stroke();
+    }
+    drawArm('left');
+    drawArm('right');
     ctx.fillStyle = '#777';
     ctx.beginPath();
     ctx.arc(0, 0, ogre.size, 0, Math.PI * 2);
@@ -1301,6 +1329,15 @@ function render() {
     boars.forEach(drawBoar);
     ogres.forEach(drawOgre);
     projectiles.forEach(drawProjectile);
+    explosions.forEach(ex => {
+        const alpha = ex.timer / 30;
+        ctx.fillStyle = `rgba(255,0,0,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ex.timer--;
+    });
+    explosions = explosions.filter(ex => ex.timer > 0);
     zombies.forEach(drawZombie);
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
