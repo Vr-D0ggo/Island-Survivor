@@ -78,7 +78,8 @@ const ITEM_ICONS = {
     'Fire Staff': 'FireStaff.png',
     'Torch': 'FireBall.png',
     'Bow': 'Bow.png',
-    'Arrow': 'Arrow.png'
+    'Arrow': 'Arrow.png',
+    'Mace': 'Mace.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -860,7 +861,6 @@ canvas.addEventListener('mousedown', e => {
         if (closestPlayer) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'player', targetId: closestPlayer.id }));
         else if (closestBoar) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'boar', targetId: closestBoar.id }));
         else if (closestZombie) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'zombie', targetId: closestZombie.id }));
-        else if (closestOgre) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'ogre', targetId: closestOgre.id }));
     }
     let didAttack = false;
     if (closestPlayer) {
@@ -1112,7 +1112,7 @@ function drawZombie(zombie) {
     ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
 
     // Pick colors based on the creature type for visual distinction.
-    let bodyColor = '#6b8e23'; // default zombie
+    let bodyColor = '#ff0000'; // default zombie now red
     let eyeColor = '#ccc';
     if (zombie.kind === 'skeleton') {
         bodyColor = '#ddd';
