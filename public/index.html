@@ -76,23 +76,29 @@
                         <div id="skill-knight-damage" class="skill-node locked" data-skill="knight-damage">Sword Damage</div>
                         <div id="skill-knight-speed" class="skill-node locked" data-skill="knight-speed">Speed</div>
                         <div id="skill-knight-health" class="skill-node locked" data-skill="knight-health">Health</div>
-                        <div id="skill-knight-bow-range" class="skill-node locked" data-skill="knight-bow-range">Bow Range</div>
-                        <div id="skill-knight-bow-damage" class="skill-node locked" data-skill="knight-bow-damage">Bow Damage</div>
-                        <div id="skill-knight-shield" class="skill-node locked" data-skill="knight-shield">Dash (Space)</div>
-                        <div id="skill-knight-whirlwind" class="skill-node locked" data-skill="knight-whirlwind">Whirlwind (Space)</div>
-                    </div>
+                    <div id="skill-knight-shield" class="skill-node locked" data-skill="knight-shield">Dash (Space)</div>
+                    <div id="skill-knight-whirlwind" class="skill-node locked" data-skill="knight-whirlwind">Whirlwind (Space)</div>
                 </div>
-                <div class="class-column">
-                    <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
+            </div>
+            <div class="class-column">
+                <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
                     <div id="summoner-skills" class="class-skills hidden">
                         <div id="skill-summoner-attack" class="skill-node locked" data-skill="summoner-attack">+1 Attack Minion</div>
                         <div id="skill-summoner-healer" class="skill-node locked" data-skill="summoner-healer">+1 Healer Minion</div>
-                        <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
-                    </div>
+                    <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
+                </div>
+            </div>
+            <div class="class-column">
+                <div id="skill-rogue" class="skill-node locked" data-skill="rogue">Rogue</div>
+                <div id="rogue-skills" class="class-skills hidden">
+                    <div id="skill-rogue-bomb" class="skill-node locked" data-skill="rogue-bomb">Bomb (Space)</div>
+                    <div id="skill-rogue-teleport" class="skill-node locked" data-skill="rogue-teleport">Teleport (Space)</div>
+                    <div id="skill-rogue-bow" class="skill-node locked" data-skill="rogue-bow">Bow Mastery</div>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
     <div id="controls-screen">
         <h2>Controls</h2>
@@ -112,6 +118,8 @@
     <div id="pre-spawn-screen" class="hidden">
         <h2>Choose your name</h2>
         <input type="text" id="name-input" maxlength="20">
+        <h2>Choose your color</h2>
+        <input type="color" id="color-input" value="#ff0000">
         <button id="start-btn">Start</button>
     </div>
 
@@ -121,6 +129,7 @@
             <button class="class-option" data-class="knight">Knight</button>
             <button class="class-option" data-class="mage">Mage</button>
             <button class="class-option" data-class="summoner">Summoner</button>
+            <button class="class-option" data-class="rogue">Rogue</button>
         </div>
     </div>
 
