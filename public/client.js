@@ -36,14 +36,16 @@ let selectedRogueAbility = 'bomb';
 let attackCooldown = 0;
 const ATTACK_COOLDOWN_MAX = 60;
 let camera = { x: 0, y: 0 };
-const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
+const OLD_WORLD_WIDTH = 3000;
+const WORLD_WIDTH = OLD_WORLD_WIDTH * 2;
+const WORLD_HEIGHT = 3000;
+const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
 const BLOCK_SIZE = GRID_CELL_SIZE / 2;
 const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
-const ogreImg = new Image(); ogreImg.src = '/icons/Ork.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
 const bedImg = new Image(); bedImg.src = '/icons/Bed.png';
@@ -1072,11 +1074,12 @@ function drawZombie(zombie) {
 
 function drawOgre(ogre) {
     drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
-    const angle = ogre.facing || Math.atan2(ogre.vy || 0, ogre.vx || 0);
     ctx.save();
     ctx.translate(ogre.x, ogre.y);
-    ctx.rotate(angle);
-    ctx.drawImage(ogreImg, -ogre.size, -ogre.size, ogre.size * 2, ogre.size * 2);
+    ctx.fillStyle = '#777';
+    ctx.beginPath();
+    ctx.arc(0, 0, ogre.size, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
     if (ogre.burn && ogre.burn > 0) {
         ctx.save();
@@ -1135,9 +1138,12 @@ function drawProjectile(p) {
         ctx.fill();
     } else if (p.type === 'smoke') {
         const radius = p.radius || 60;
+        const me = players[myPlayerId];
+        const inner = me && me.class === 'rogue' ? 'rgba(128,128,128,0.4)' : 'rgba(90,90,90,0.6)';
+        const outer = me && me.class === 'rogue' ? 'rgba(128,128,128,0)' : 'rgba(90,90,90,0)';
         const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
-        grad.addColorStop(0, 'rgba(128,128,128,0.5)');
-        grad.addColorStop(1, 'rgba(128,128,128,0)');
+        grad.addColorStop(0, inner);
+        grad.addColorStop(1, outer);
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
@@ -1208,7 +1214,9 @@ function render() {
     }
     ctx.translate(-camera.x, -camera.y);
     ctx.fillStyle = '#5c8b5c';
-    ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    ctx.fillRect(0, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
+    ctx.fillStyle = '#8cc68c';
+    ctx.fillRect(OLD_WORLD_WIDTH, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
     ctx.strokeStyle = 'rgba(0,0,0,0.1)';
     ctx.lineWidth = 1;
     for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); }
@@ -1222,6 +1230,7 @@ function render() {
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
     ctx.restore();
+
     ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (darkness > 0) {
