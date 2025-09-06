@@ -110,6 +110,7 @@ function createBoar(x, y) {
         aggressive: false,
         target: null,
         cooldown: 0,
+        giveUpTimer: 0,
         vx: 0,
         vy: 0,
         wanderTimer: 0,
@@ -179,6 +180,7 @@ function createZombie(x, y, ownerId = null, minionType = 'attack') {
         aggressive: false,
         target: null,
         cooldown: 0,
+        giveUpTimer: 0,
         vx: 0,
         vy: 0,
         wanderTimer: 0,
@@ -488,7 +490,7 @@ function moveToward(entity, target) {
     const dist = Math.hypot(dx, dy);
     if (dist === 0) return;
     let angle = Math.atan2(dy, dx);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 16; i++) {
         const vx = Math.cos(angle) * entity.speed;
         const vy = Math.sin(angle) * entity.speed;
         const nx = entity.x + vx;
@@ -498,7 +500,7 @@ function moveToward(entity, target) {
             entity.vy = vy;
             return;
         }
-        angle += Math.PI / 4;
+        angle += Math.PI / 8;
     }
     entity.vx = 0;
     entity.vy = 0;
@@ -573,6 +575,7 @@ wss.on('connection', ws => {
         canBind: false,
         canMissile: false,
         canBomb: false,
+        canSmoke: false,
         canTeleport: false,
         slowDuration: 60,
         swordDamage: 0,
@@ -835,12 +838,14 @@ wss.on('connection', ws => {
                                 player.canMissile = true;
                             }
                         }
-                    } else if (player.class === 'rogue' && ['rogue-bomb', 'rogue-teleport', 'rogue-bow'].includes(skill)) {
+                    } else if (player.class === 'rogue' && ['rogue-bomb', 'rogue-smoke', 'rogue-teleport', 'rogue-bow'].includes(skill)) {
                         if (!player.rogueSkills) player.rogueSkills = {};
                         if (!player.rogueSkills[skill]) {
+                            if (skill === 'rogue-smoke' && !player.rogueSkills['rogue-bomb']) break;
                             player.skillPoints--;
                             player.rogueSkills[skill] = true;
                             if (skill === 'rogue-bomb') player.canBomb = true;
+                            else if (skill === 'rogue-smoke') player.canSmoke = true;
                             else if (skill === 'rogue-teleport') player.canTeleport = true;
                         }
                     }
@@ -937,6 +942,15 @@ wss.on('connection', ws => {
                     const { targetX, targetY } = data;
                     if (typeof targetX === 'number' && typeof targetY === 'number') {
                         projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'bomb', timer: 60 });
+                    }
+                }
+                break;
+            }
+            case 'rogue-smoke': {
+                if (player.class === 'rogue' && player.canSmoke) {
+                    const { targetX, targetY } = data;
+                    if (typeof targetX === 'number' && typeof targetY === 'number') {
+                        projectiles.push({ id: nextProjectileId++, x: targetX, y: targetY, vx: 0, vy: 0, owner: playerId, type: 'smoke', timer: 300, radius: 80 });
                     }
                 }
                 break;
@@ -1228,6 +1242,10 @@ function gameLoop() {
                 proj.remove = true;
             }
             continue;
+        } else if (proj.type === 'smoke') {
+            proj.timer--;
+            if (proj.timer <= 0) proj.remove = true;
+            continue;
         }
         if (proj.type === 'missile' && proj.targetType) {
             let target;
@@ -1416,6 +1434,7 @@ function gameLoop() {
         if (boar.bind > 0) { boar.bind--; boar.speed = 0; }
         else if (boar.slow > 0) { boar.slow--; boar.speed = boar.baseSpeed * 0.5; }
         if (boar.cooldown > 0) boar.cooldown--;
+        if (boar.giveUpTimer > 0) boar.giveUpTimer--;
         if (boar.burn > 0) {
             boar.burn--;
             if (boar.burn % 30 === 0) boar.hp = Math.max(0, boar.hp - 1);
@@ -1432,7 +1451,7 @@ function gameLoop() {
             if (boar.behavior === 'sight') {
                 for (const t of potentialTargets) {
                     if (getDistance(t.entity, boar) < 150 && hasLineOfSight(boar, t.entity)) {
-                        boar.aggressive = true; boar.target = { type: t.type, id: t.id }; break;
+                        boar.aggressive = true; boar.target = { type: t.type, id: t.id }; boar.giveUpTimer = 600; break;
                     }
                 }
             } else if (boar.behavior === 'stand') {
@@ -1440,7 +1459,7 @@ function gameLoop() {
                 boar.vy = 0;
                 for (const t of potentialTargets) {
                     if (getDistance(t.entity, boar) < 80 && hasLineOfSight(boar, t.entity)) {
-                        boar.aggressive = true; boar.target = { type: t.type, id: t.id }; break;
+                        boar.aggressive = true; boar.target = { type: t.type, id: t.id }; boar.giveUpTimer = 600; break;
                     }
                 }
             }
@@ -1449,11 +1468,13 @@ function gameLoop() {
             if (boar.target.type === 'player') target = players[boar.target.id];
             else if (boar.target.type === 'ogre') target = ogres.find(o => o.id === boar.target.id);
             else if (boar.target.type === 'zombie') target = zombies.find(z => z.id === boar.target.id);
-            if (!target) { boar.aggressive = false; boar.target = null; }
+            if (!target) { boar.aggressive = false; boar.target = null; boar.giveUpTimer = 0; }
             else {
                 const dist = getDistance(boar, target);
-                if (dist > 200 || !hasLineOfSight(boar, target)) { boar.aggressive = false; boar.target = null; }
+                if (dist > 200) { boar.aggressive = false; boar.target = null; boar.giveUpTimer = 0; }
                 else {
+                    if (hasLineOfSight(boar, target)) boar.giveUpTimer = 600;
+                    else if (boar.giveUpTimer <= 0) { boar.aggressive = false; boar.target = null; boar.giveUpTimer = 0; continue; }
                     moveToward(boar, target);
                     if (dist < boar.size + target.size && boar.cooldown <= 0) {
                         if (boar.target.type !== 'player' || target.invulnerable <= 0) {
@@ -1515,6 +1536,7 @@ function gameLoop() {
         if (zombie.bind > 0) { zombie.bind--; zombie.speed = 0; }
         else if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
+        if (zombie.giveUpTimer > 0) zombie.giveUpTimer--;
         if (dayNight.isDay && !isInShadow(zombie) && !zombie.ownerId) {
             zombie.burn = Math.min(120, (zombie.burn || 0) + 1);
             if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
@@ -1561,6 +1583,7 @@ function gameLoop() {
                 if (dist < 200 && diff < Math.PI / 4 && hasLineOfSight(zombie, t.entity)) {
                     zombie.aggressive = true;
                     zombie.target = { type: t.type, id: t.id };
+                    zombie.giveUpTimer = 1800;
                     detected = true;
                     break;
                 }
@@ -1577,10 +1600,14 @@ function gameLoop() {
             else if (zombie.target.type === 'ogre') target = ogres.find(o => o.id === zombie.target.id);
             else if (zombie.target.type === 'boar') target = boars.find(b => b.id === zombie.target.id);
             else if (zombie.target.type === 'zombie') target = zombies.find(z => z.id === zombie.target.id);
-            if (!target) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; }
+            if (!target) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; zombie.giveUpTimer = 0; }
             else {
                 const dist = getDistance(zombie, target);
-                if (!zombie.commanded && (dist > 250 || !hasLineOfSight(zombie, target))) { zombie.aggressive = false; zombie.target = null; }
+                if (!zombie.commanded) {
+                    if (hasLineOfSight(zombie, target)) zombie.giveUpTimer = 1800;
+                    else if (zombie.giveUpTimer <= 0) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; zombie.giveUpTimer = 0; continue; }
+                }
+                if (!zombie.commanded && dist > 250 && zombie.giveUpTimer <= 0) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; }
                 else {
                     moveToward(zombie, target);
                     zombie.angle = Math.atan2(zombie.vy, zombie.vx);
@@ -1644,17 +1671,16 @@ function gameLoop() {
         for (const id in players) {
             const p = players[id];
             if (!p.active) continue;
-            if (!hasLineOfSight(ogre, p)) continue;
             const d = getDistance(p, ogre);
             if (d < minDist) { minDist = d; targetData = { entity: p, type: 'player', id }; }
         }
-        if (targetData && hasLineOfSight(ogre, targetData.entity)) {
+        if (targetData) {
             ogre.target = { type: 'player', id: targetData.id };
             ogre.wanderTimer = 0;
             const dist = minDist;
             moveToward(ogre, targetData.entity);
             ogre.facing = Math.atan2(ogre.vy, ogre.vx);
-            if (dist < 300 && ogre.fireCooldown <= 0) {
+            if (dist < 300 && hasLineOfSight(ogre, targetData.entity) && ogre.fireCooldown <= 0) {
                 const angle = Math.atan2(targetData.entity.y - ogre.y, targetData.entity.x - ogre.x);
                 ogre.facing = angle;
                 const speed = 4;
@@ -1664,7 +1690,7 @@ function gameLoop() {
                 projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
                 ogre.fireCooldown = 90;
             }
-            if (dist < ogre.size + (targetData.entity.size || 10) + 10 && ogre.cooldown <= 0) {
+            if (dist < ogre.size + (targetData.entity.size || 10) + 10 && ogre.cooldown <= 0 && hasLineOfSight(ogre, targetData.entity)) {
                 if (targetData.entity.invulnerable <= 0) {
                     const dmg = Math.floor((targetData.entity.maxHp || 10) / 2);
                     targetData.entity.hp = Math.max(0, targetData.entity.hp - dmg);
