@@ -13,6 +13,12 @@ const socket = new WebSocket(`${protocol}://${window.location.host}`);
 socket.onopen = () => console.log("✅ WebSocket connection established successfully!");
 socket.onerror = (error) => console.error("❌ WebSocket Error:", error);
 
+function safeSend(data) {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(data));
+    }
+}
+
 // --- Audio Handling ---
 const morningMusic = new Audio('/morning.mp3'); morningMusic.loop = true;
 const nightMusic = new Audio('/night.mp3'); nightMusic.loop = true;
@@ -30,20 +36,28 @@ let zombies = [];
 let ogres = [];
 let groundItems = [];
 let projectiles = [];
+let explosions = [];
+let selectedMageSpell = 'slow';
+let selectedKnightAbility = 'non';
+let selectedRogueAbility = 'bomb';
+let attackCooldown = 0; // no global left-click cooldown
 let camera = { x: 0, y: 0 };
-const WORLD_WIDTH = 3000; const WORLD_HEIGHT = 3000; const GRID_CELL_SIZE = 50;
+const OLD_WORLD_WIDTH = 3000;
+const WORLD_WIDTH = OLD_WORLD_WIDTH * 2;
+const WORLD_HEIGHT = 3000;
+const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
 const BLOCK_SIZE = GRID_CELL_SIZE / 2;
 const treeTopImg = new Image(); treeTopImg.src = '/icons/Treetop.png';
 const treeTrunkImg = new Image(); treeTrunkImg.src = '/icons/Treetrunk.png';
 const appleImg = new Image(); appleImg.src = '/icons/apple.png';
 const boarImg = new Image(); boarImg.src = '/icons/Boar.png';
-const ogreImg = new Image(); ogreImg.src = '/icons/Ork.png';
 const workbenchImg = new Image(); workbenchImg.src = '/icons/workbench.png';
 const ovenImg = new Image(); ovenImg.src = '/icons/Oven.png';
 const bedImg = new Image(); bedImg.src = '/icons/Bed.png';
 const fireStaffImg = new Image(); fireStaffImg.src = '/icons/FireStaff.png';
 const fireBallImg = new Image(); fireBallImg.src = '/icons/FireBall.png';
+const arrowImg = new Image(); arrowImg.src = '/icons/Arrow.png';
 const ITEM_ICONS = {
     'Wood': 'wood.png',
     'Stone': 'stone.png',
@@ -62,7 +76,9 @@ const ITEM_ICONS = {
     'Furnace': 'Oven.png',
     'Bed': 'Bed.png',
     'Fire Staff': 'FireStaff.png',
-    'Torch': 'FireBall.png'
+    'Torch': 'FireBall.png',
+    'Bow': 'Bow.png',
+    'Arrow': 'Arrow.png'
 };
 const itemImages = {};
 const RECIPES = {
@@ -75,7 +91,9 @@ const RECIPES = {
     'Stone Sword': { cost: { Wood: 1, Stone: 4 }, icon: ITEM_ICONS['Stone Sword'] },
     'Furnace': { cost: { Stone: 20 }, icon: ITEM_ICONS['Furnace'] },
     'Bed': { cost: { Wood: 20, Leaf: 40 }, icon: ITEM_ICONS['Bed'] },
-    'Torch': { cost: { Wood: 3 }, icon: ITEM_ICONS['Torch'] }
+    'Torch': { cost: { Wood: 3 }, icon: ITEM_ICONS['Torch'] },
+    'Bow': { cost: { Wood: 3, Stone: 2 }, icon: ITEM_ICONS['Bow'] },
+    'Arrow': { cost: { Wood: 1, Stone: 1 }, icon: ITEM_ICONS['Arrow'], amount: 2, noWorkbench: true }
 };
 
 // --- Input & UI State ---
@@ -89,12 +107,23 @@ const furnaceCookBtn = document.getElementById('furnace-cook-btn');
 const chatMessages = document.getElementById('chat-messages'); const chatInput = document.getElementById('chat-input');
 const healthFill = document.getElementById('player-health-fill');
 const manaFill = document.getElementById('player-mana-fill');
+const manaBar = document.getElementById('player-mana-bar');
+const attackFill = document.getElementById('player-attack-fill');
+const attackBar = document.getElementById('player-attack-bar');
 const deathScreen = document.getElementById('death-screen');
 const deathMessage = document.getElementById('death-message');
 const respawnBtn = document.getElementById('respawn-btn');
 const menuBtn = document.getElementById('menu-btn');
 const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
+const colorInput = document.getElementById('color-input');
+const eyeColorInput = document.getElementById('eye-color-input');
+const customizeBtn = document.getElementById('customize-btn');
+const customizationPanel = document.getElementById('customization-panel');
+const mouthSelect = document.getElementById('mouth-select');
+const mouthColorInput = document.getElementById('mouth-color-input');
+const previewCanvas = document.getElementById('preview-canvas');
+const previewCtx = previewCanvas ? previewCanvas.getContext('2d') : null;
 const startBtn = document.getElementById('start-btn');
 const controlsScreen = document.getElementById('controls-screen');
 const controlsBtn = document.getElementById('controls-btn');
@@ -102,20 +131,29 @@ const classScreen = document.getElementById('class-screen');
 const classButtons = document.querySelectorAll('.class-option');
 const levelIndicator = document.getElementById('level-indicator');
 const summonerBar = document.getElementById('summoner-bar');
+const abilityIndicator = document.getElementById('ability-indicator');
 const skillTree = document.getElementById('skill-tree');
 const skillPointsElem = document.getElementById('skill-points');
 const rangeNode = document.getElementById('skill-range');
 const mageNode = document.getElementById('skill-mage');
 const knightNode = document.getElementById('skill-knight');
 const summonerNode = document.getElementById('skill-summoner');
+const rogueNode = document.getElementById('skill-rogue');
 const knightSkillGroup = document.getElementById('knight-skills');
 const summonerSkillGroup = document.getElementById('summoner-skills');
 const mageSkillGroup = document.getElementById('mage-skills');
+const rogueSkillGroup = document.getElementById('rogue-skills');
 const knightSkillNodes = [
     document.getElementById('skill-knight-damage'),
     document.getElementById('skill-knight-speed'),
-    document.getElementById('skill-knight-health')
+    document.getElementById('skill-knight-health'),
+    document.getElementById('skill-knight-shield'),
+    document.getElementById('skill-knight-whirlwind')
 ];
+const knightSkillPrereqs = {
+    'knight-shield': 'knight-speed',
+    'knight-whirlwind': 'knight-damage'
+};
 const summonerSkillNodes = [
     document.getElementById('skill-summoner-attack'),
     document.getElementById('skill-summoner-healer'),
@@ -126,8 +164,83 @@ const mageSkillNodes = [
     document.getElementById('skill-mage-regen'),
     document.getElementById('skill-mage-slow'),
     document.getElementById('skill-mage-slow-extend'),
-    document.getElementById('skill-mage-bind')
+    document.getElementById('skill-mage-bind'),
+    document.getElementById('skill-mage-missile')
 ];
+const mageSkillPrereqs = {
+    'mage-slow-extend': 'mage-slow',
+    'mage-bind': 'mage-slow-extend',
+    'mage-missile': 'mage-mana'
+};
+const rogueSkillNodes = [
+    document.getElementById('skill-rogue-bomb'),
+    document.getElementById('skill-rogue-smoke'),
+    document.getElementById('skill-rogue-teleport'),
+    document.getElementById('skill-rogue-bow')
+];
+const rogueSkillPrereqs = { 'rogue-smoke': 'rogue-bomb' };
+
+function renderMouth(ctx, x, y, size, type, color) {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    switch (type) {
+        case 'line':
+            ctx.beginPath();
+            ctx.moveTo(x - size, y);
+            ctx.lineTo(x + size, y);
+            ctx.stroke();
+            break;
+        case 'square':
+            ctx.fillRect(x - size, y - size, size * 2, size * 2);
+            break;
+        case 'circle':
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case 'oval':
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(1.5, 1);
+            ctx.beginPath();
+            ctx.arc(0, 0, size, 0, Math.PI * 2);
+            ctx.restore();
+            ctx.fill();
+            break;
+        case 'diamond':
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x + size, y);
+            ctx.lineTo(x, y + size);
+            ctx.lineTo(x - size, y);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 'triangle':
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x + size, y + size);
+            ctx.lineTo(x - size, y + size);
+            ctx.closePath();
+            ctx.fill();
+            break;
+    }
+}
+
+function orderSkillGroup(group, prereqs) {
+    const nodes = Array.from(group.children);
+    const depth = skill => {
+        let d = 0; let s = skill;
+        while (prereqs[s]) { d++; s = prereqs[s]; }
+        return d;
+    };
+    nodes.sort((a, b) => depth(a.dataset.skill) - depth(b.dataset.skill));
+    nodes.forEach(n => group.appendChild(n));
+}
+if (knightSkillGroup) orderSkillGroup(knightSkillGroup, knightSkillPrereqs);
+if (mageSkillGroup) orderSkillGroup(mageSkillGroup, mageSkillPrereqs);
+if (rogueSkillGroup) orderSkillGroup(rogueSkillGroup, rogueSkillPrereqs);
 let selectedHotbarSlot = 0;
 let mousePos = { x: 0, y: 0 };
 let dragData = null; let dropHandled = false;
@@ -141,12 +254,39 @@ if (respawnBtn) respawnBtn.onclick = () => { preSpawn = false; deathScreen.class
 if (menuBtn) menuBtn.onclick = () => { deathScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); preSpawn = true; };
 if (controlsBtn) controlsBtn.onclick = () => { controlsScreen.classList.add('hidden'); preSpawnScreen.classList.remove('hidden'); };
 if (startBtn) startBtn.onclick = () => { preSpawnScreen.classList.add('hidden'); classScreen.classList.remove('hidden'); };
+if (customizeBtn) customizeBtn.onclick = () => {
+    customizationPanel.classList.toggle('hidden');
+    drawPreview();
+};
+[colorInput, eyeColorInput, mouthSelect, mouthColorInput].forEach(el => {
+    if (el) el.addEventListener('input', drawPreview);
+});
+function drawPreview() {
+    if (!previewCtx) return;
+    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    const x = previewCanvas.width / 2;
+    const y = previewCanvas.height / 2;
+    const size = 30;
+    previewCtx.beginPath();
+    previewCtx.arc(x, y, size, 0, Math.PI * 2);
+    previewCtx.fillStyle = colorInput.value;
+    previewCtx.fill();
+    previewCtx.strokeStyle = '#333';
+    previewCtx.lineWidth = 3;
+    previewCtx.stroke();
+    previewCtx.beginPath();
+    previewCtx.arc(x - size * 0.4, y - size * 0.4, size * 0.2, 0, Math.PI * 2);
+    previewCtx.arc(x + size * 0.4, y + size * 0.4, size * 0.2, 0, Math.PI * 2);
+    previewCtx.fillStyle = eyeColorInput.value;
+    previewCtx.fill();
+    renderMouth(previewCtx, x, y + size * 0.4, size * 0.2, mouthSelect.value, mouthColorInput.value);
+}
 classButtons.forEach(btn => {
     btn.onclick = () => {
         const cls = btn.dataset.class;
         classScreen.classList.add('hidden');
         preSpawn = false;
-        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor' }));
+        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value, eyeColor: eyeColorInput.value, mouth: mouthSelect.value, mouthColor: mouthColorInput.value }));
         socket.send(JSON.stringify({ type: 'set-class', class: cls }));
     };
 });
@@ -158,7 +298,7 @@ canvas.addEventListener('mousemove', e => {
 
 // --- Helper Functions ---
 function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
-function initializePlayerForRender(player) { if (player) { player.renderX = player.x; player.renderY = player.y; } }
+function initializePlayerForRender(player) { if (player) { player.renderX = player.x; player.renderY = player.y; player.spinAngle = player.spinAngle || 0; } }
 function createItemIconCanvas(name) {
     const c = document.createElement('canvas');
     c.width = c.height = 32;
@@ -194,9 +334,18 @@ function updatePlayerHealthBar() {
 
 function updatePlayerManaBar() {
     const me = players[myPlayerId];
-    if (me && manaFill) {
-        manaFill.style.height = `${(me.mana / me.maxMana) * 100}%`;
+    if (me && manaFill && manaBar) {
+        if (me.maxMana > 0) {
+            manaBar.classList.remove('hidden');
+            manaFill.style.height = `${(me.mana / me.maxMana) * 100}%`;
+        } else {
+            manaBar.classList.add('hidden');
+        }
     }
+}
+
+function updateAttackBar() {
+    if (attackBar) attackBar.classList.add('hidden');
 }
 
 function updateLevelUI() {
@@ -209,24 +358,25 @@ function updateLevelUI() {
         rangeNode.classList.toggle('unlocked', unlocked);
         rangeNode.classList.toggle('locked', !unlocked);
     }
-    [mageNode, knightNode, summonerNode].forEach(node => {
+    [mageNode, knightNode, summonerNode, rogueNode].forEach(node => {
         if (!node) return;
         const skill = node.dataset.skill;
         const unlocked = me.class === skill;
         const available = me.skills && me.skills.range && !me.class;
+        node.classList.toggle('hidden', me.class && me.class !== skill);
         node.classList.toggle('unlocked', unlocked);
         node.classList.toggle('locked', !(unlocked || available));
     });
     if (knightSkillGroup) knightSkillGroup.classList.toggle('hidden', me.class !== 'knight');
     if (summonerSkillGroup) summonerSkillGroup.classList.toggle('hidden', me.class !== 'summoner');
     if (mageSkillGroup) mageSkillGroup.classList.toggle('hidden', me.class !== 'mage');
+    if (rogueSkillGroup) rogueSkillGroup.classList.toggle('hidden', me.class !== 'rogue');
     knightSkillNodes.forEach(node => {
         const skill = node.dataset.skill;
         const unlocked = me.knightSkills && me.knightSkills[skill];
-        const limitReached = me.knightSkills && Object.keys(me.knightSkills).length >= 2 && !unlocked;
-        const available = me.class === 'knight' && me.skillPoints > 0 && !unlocked && !limitReached;
+        node.classList.remove('hidden');
         node.classList.toggle('unlocked', unlocked);
-        node.classList.toggle('locked', !(unlocked || available));
+        node.classList.toggle('locked', !unlocked);
     });
     summonerSkillNodes.forEach(node => {
         const available = me.class === 'summoner' && me.skillPoints > 0;
@@ -236,12 +386,16 @@ function updateLevelUI() {
     mageSkillNodes.forEach(node => {
         const skill = node.dataset.skill;
         const unlocked = me.mageSkills && me.mageSkills[skill];
-        let available = me.class === 'mage' && me.skillPoints > 0 && !unlocked;
-        if (skill === 'mage-slow-extend') available = available && me.mageSkills && me.mageSkills['mage-slow'];
-        if (skill === 'mage-bind') available = available && me.mageSkills && me.mageSkills['mage-slow-extend'];
-        node.classList.toggle('hidden', !(unlocked || available));
+        node.classList.remove('hidden');
         node.classList.toggle('unlocked', unlocked);
-        node.classList.toggle('locked', !(unlocked || available));
+        node.classList.toggle('locked', !unlocked);
+    });
+    rogueSkillNodes.forEach(node => {
+        const skill = node.dataset.skill;
+        const unlocked = me.rogueSkills && me.rogueSkills[skill];
+        node.classList.remove('hidden');
+        node.classList.toggle('unlocked', unlocked);
+        node.classList.toggle('locked', !unlocked);
     });
 }
 
@@ -257,6 +411,66 @@ function updateSummonerBar() {
     const label = summonerSpawnType.charAt(0).toUpperCase() + summonerSpawnType.slice(1);
     summonerBar.textContent = `${label}: ${remaining} left`;
     summonerBar.classList.remove('hidden');
+}
+
+function updateAbilityIndicator() {
+    const me = players[myPlayerId];
+    if (!abilityIndicator || !me) {
+        if (abilityIndicator) abilityIndicator.classList.add('hidden');
+        return;
+    }
+    if (me.class === 'mage' && (me.canSlow || me.canBind || me.canMissile)) {
+        const spells = [];
+        if (me.canSlow) spells.push('slow');
+        if (me.canBind) spells.push('bind');
+        if (me.canMissile) spells.push('missile');
+        if (!spells.includes(selectedMageSpell)) selectedMageSpell = spells[0];
+        const labelMap = { slow: 'Slow', bind: 'Bind', missile: 'Missile' };
+        abilityIndicator.textContent = `Spell: ${labelMap[selectedMageSpell]}`;
+        abilityIndicator.classList.remove('hidden');
+    } else if (me.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
+        const abilities = ['non'];
+        if (me.knightSkills['knight-shield']) abilities.push('dash');
+        if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
+        if (!abilities.includes(selectedKnightAbility)) selectedKnightAbility = abilities[0];
+        const labelMap = { non: 'Non', dash: 'Dash', whirlwind: 'Whirlwind' };
+        abilityIndicator.textContent = `Ability: ${labelMap[selectedKnightAbility]}`;
+        abilityIndicator.classList.remove('hidden');
+    } else if (me.class === 'rogue') {
+        const abilities = [];
+        if (me.canBomb) abilities.push('bomb');
+        if (me.canSmoke) abilities.push('smoke');
+        if (me.canTeleport) abilities.push('teleport');
+        if (me.rogueSkills && me.rogueSkills['rogue-bow']) abilities.push('bow');
+        if (abilities.length > 0) {
+            if (!abilities.includes(selectedRogueAbility)) selectedRogueAbility = abilities[0];
+            const labelMap = { bomb: 'Bomb', smoke: 'Smoke', teleport: 'Teleport', bow: 'Bow' };
+            abilityIndicator.textContent = `Ability: ${labelMap[selectedRogueAbility]}`;
+            abilityIndicator.classList.remove('hidden');
+        } else {
+            abilityIndicator.classList.add('hidden');
+        }
+    } else {
+        abilityIndicator.classList.add('hidden');
+    }
+}
+
+function getMouseTarget() {
+    const mx = mousePos.x + camera.x;
+    const my = mousePos.y + camera.y;
+    let target = null; let dist = Infinity;
+    const check = (entity, type, id) => {
+        const size = entity.size || 10;
+        const d = Math.hypot(mx - entity.x, my - entity.y);
+        if (d < size && d < dist) { dist = d; target = { type, id }; }
+    };
+    for (const [id, p] of Object.entries(players)) {
+        if (id !== myPlayerId && p.active) check(p, 'player', id);
+    }
+    for (const boar of boars) check(boar, 'boar', boar.id);
+    for (const zombie of zombies) check(zombie, 'zombie', zombie.id);
+    for (const ogre of ogres) check(ogre, 'ogre', ogre.id);
+    return target;
 }
 
 function drawShadow(x, y, w, h) {
@@ -342,9 +556,21 @@ socket.onmessage = event => {
                     clientPlayer.mageSkills = serverPlayer.mageSkills || {};
                     clientPlayer.swordDamage = serverPlayer.swordDamage || 0;
                     clientPlayer.canSlow = serverPlayer.canSlow;
+                    clientPlayer.canBind = serverPlayer.canBind;
+                    clientPlayer.canMissile = serverPlayer.canMissile;
+                    clientPlayer.canBomb = serverPlayer.canBomb;
+                    clientPlayer.canSmoke = serverPlayer.canSmoke;
+                    clientPlayer.canTeleport = serverPlayer.canTeleport;
+                    clientPlayer.rogueSkills = serverPlayer.rogueSkills || {};
+                    clientPlayer.color = serverPlayer.color;
+                    clientPlayer.eyeColor = serverPlayer.eyeColor || '#ccc';
+                    clientPlayer.dashCooldown = serverPlayer.dashCooldown || 0;
+                    clientPlayer.whirlwindCooldown = serverPlayer.whirlwindCooldown || 0;
+                    clientPlayer.whirlwindTime = serverPlayer.whirlwindTime || 0;
                     if (id === myPlayerId) {
                         const dist = Math.hypot(serverPlayer.x - clientPlayer.x, serverPlayer.y - clientPlayer.y);
                         if (dist > 20) { clientPlayer.x = serverPlayer.x; clientPlayer.y = serverPlayer.y; }
+                        updateAbilityIndicator();
                     } else {
                         clientPlayer.targetX = serverPlayer.x;
                         clientPlayer.targetY = serverPlayer.y;
@@ -389,6 +615,9 @@ socket.onmessage = event => {
             if (idx !== -1) ogres[idx] = data.ogre; else ogres.push(data.ogre);
             break;
         }
+        case 'bomb-explode':
+            explosions.push({ x: data.x, y: data.y, radius: data.radius, timer: 30 });
+            break;
         case 'player-hit': if (players[myPlayerId]) { players[myPlayerId].hp = data.hp; updatePlayerHealthBar(); } break;
         case 'player-dead':
             deathFade = 0;
@@ -396,7 +625,8 @@ socket.onmessage = event => {
             preSpawn = true;
             if (deathMessage) {
                 const cause = data.cause || 'unknown';
-                deathMessage.textContent = `You died at the hands of ${cause}`;
+                if (cause === 'ogre') deathMessage.textContent = 'You were crushed by the Rock Monster';
+                else deathMessage.textContent = `You died at the hands of ${cause}`;
             }
             if (deathScreen) deathScreen.classList.remove('hidden');
             break;
@@ -416,8 +646,8 @@ function updateCraftingUI() {
     };
     const nearWorkbench = Object.values(structures).some(s => s.type === 'workbench' && Math.hypot((s.x + s.size / 2) - me.x, (s.y + s.size / 2) - me.y) < 150);
     for (const recipeName in RECIPES) {
-        if (recipeName !== 'Workbench' && !nearWorkbench) continue;
         const recipe = RECIPES[recipeName];
+        if (recipeName !== 'Workbench' && !recipe.noWorkbench && !nearWorkbench) continue;
         let canCraft = true;
         let costString = '';
         for (const ingredient in recipe.cost) {
@@ -429,7 +659,8 @@ function updateCraftingUI() {
         const recipeEl = document.createElement('div');
         recipeEl.className = 'recipe';
         if (!canCraft) recipeEl.classList.add('disabled');
-        recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${recipeName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>Craft</button>`;
+        const displayName = recipe.amount ? `${recipeName} x${recipe.amount}` : recipeName;
+        recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${displayName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>Craft</button>`;
         if (canCraft) {
             recipeEl.querySelector('button').onclick = () => { socket.send(JSON.stringify({ type: 'craft-item', itemName: recipeName })); };
         }
@@ -584,7 +815,9 @@ function playerMovement() {
     if (!collision) {
         player.x = predictedX;
         player.y = predictedY;
-        socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y }));
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'move', x: player.x, y: player.y }));
+        }
     }
 }
 canvas.addEventListener('mousedown', e => {
@@ -629,16 +862,22 @@ canvas.addEventListener('mousedown', e => {
         else if (closestZombie) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'zombie', targetId: closestZombie.id }));
         else if (closestOgre) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'ogre', targetId: closestOgre.id }));
     }
+    let didAttack = false;
     if (closestPlayer) {
         socket.send(JSON.stringify({ type: 'hit-player', targetId: closestPlayer.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestBoar) {
         socket.send(JSON.stringify({ type: 'hit-boar', boarId: closestBoar.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestZombie) {
         socket.send(JSON.stringify({ type: 'hit-zombie', zombieId: closestZombie.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestOgre) {
         socket.send(JSON.stringify({ type: 'hit-ogre', ogreId: closestOgre.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else {
         let key = null;
         const blockX = Math.floor(mouseX / BLOCK_SIZE);
@@ -651,6 +890,9 @@ canvas.addEventListener('mousedown', e => {
             if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
         }
         if (key) socket.send(JSON.stringify({ type: 'hit-structure', key, item: selectedItem ? selectedItem.item : null, hotbarIndex: selectedHotbarSlot }));
+    }
+    if (didAttack) {
+        updateAttackBar();
     }
 });
 canvas.addEventListener('contextmenu', e => {
@@ -667,6 +909,10 @@ canvas.addEventListener('contextmenu', e => {
     }
     if (selectedItem && selectedItem.item === 'Fire Staff') {
         socket.send(JSON.stringify({ type: 'cast-staff', targetX: mouseX, targetY: mouseY }));
+        return;
+    }
+    if (selectedItem && selectedItem.item === 'Bow') {
+        socket.send(JSON.stringify({ type: 'shoot-arrow', targetX: mouseX, targetY: mouseY }));
         return;
     }
     let key = null;
@@ -712,16 +958,22 @@ function drawPlayer(player, isMe) {
     drawShadow(x, y, player.size * 2, player.size);
     ctx.beginPath();
     ctx.arc(x, y, player.size, 0, Math.PI * 2);
-    ctx.fillStyle = isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)';
+    ctx.fillStyle = player.color || (isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)');
     ctx.fill();
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 3;
     ctx.stroke();
     let angle = 0;
-    if (isMe) {
-        angle = Math.atan2(mousePos.y - (y - camera.y), mousePos.x - (x - camera.x));
-    } else if (player.targetX !== undefined) {
-        angle = Math.atan2(player.targetY - y, player.targetX - x);
+    if (player.whirlwindTime && player.whirlwindTime > 0) {
+        player.spinAngle = (player.spinAngle || 0) + 0.5;
+        angle = player.spinAngle;
+    } else {
+        if (isMe) {
+            angle = Math.atan2(mousePos.y - (y - camera.y), mousePos.x - (x - camera.x));
+        } else if (player.targetX !== undefined) {
+            angle = Math.atan2(player.targetY - y, player.targetX - x);
+        }
+        player.spinAngle = angle;
     }
     const eyeAngle = angle + Math.PI / 2;
     const eyeOffset = player.size * 0.4;
@@ -730,7 +982,7 @@ function drawPlayer(player, isMe) {
     ctx.beginPath();
     ctx.arc(x + ex, y + ey, player.size * 0.2, 0, Math.PI * 2);
     ctx.arc(x - ex, y - ey, player.size * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = '#ccc';
+    ctx.fillStyle = player.eyeColor || '#ccc';
     ctx.fill();
     const nx = Math.cos(angle) * player.size * 0.6;
     const ny = Math.sin(angle) * player.size * 0.6;
@@ -749,6 +1001,9 @@ function drawPlayer(player, isMe) {
     ctx.arc(x + nx, y + ny, player.size * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = '#000';
     ctx.fill();
+    const mx = x + Math.cos(angle) * player.size * 0.6;
+    const my = y + Math.sin(angle) * player.size * 0.6;
+    renderMouth(ctx, mx, my, player.size * 0.3, player.mouth || 'line', player.mouthColor || '#000');
     if (player.hp < player.maxHp) {
         ctx.fillStyle = 'red';
         ctx.fillRect(x - player.size, y - player.size - 10, player.size * 2, 6);
@@ -865,6 +1120,12 @@ function drawZombie(zombie) {
     } else if (zombie.kind === 'spirit') {
         bodyColor = 'rgba(150,255,255,0.8)';
         eyeColor = '#fff';
+    } else if (zombie.kind === 'tree') {
+        bodyColor = '#39ff14';
+        eyeColor = '#003300';
+    } else if (zombie.kind === 'big') {
+        bodyColor = '#228B22';
+        eyeColor = '#fff';
     }
     ctx.fillStyle = bodyColor;
     ctx.fill();
@@ -905,11 +1166,35 @@ function drawZombie(zombie) {
 
 function drawOgre(ogre) {
     drawShadow(ogre.x, ogre.y, ogre.size * 2, ogre.size);
-    const angle = ogre.facing || Math.atan2(ogre.vy || 0, ogre.vx || 0);
     ctx.save();
     ctx.translate(ogre.x, ogre.y);
-    ctx.rotate(angle);
-    ctx.drawImage(ogreImg, -ogre.size, -ogre.size, ogre.size * 2, ogre.size * 2);
+    const arm1 = ogre.size * 0.8;
+    const arm2 = ogre.size * 0.6;
+    const armWidth = ogre.size / 3;
+    function drawArm(side) {
+        const base = side === 'right' ? 0 : Math.PI;
+        let swing = 0;
+        if (ogre.smashPhase === side) {
+            swing = (1 - ogre.smashTimer / 15) * (side === 'right' ? Math.PI / 2 : -Math.PI / 2);
+        }
+        const a1 = base + swing;
+        const elbow = { x: Math.cos(a1) * arm1, y: Math.sin(a1) * arm1 };
+        const hand = { x: elbow.x + Math.cos(a1) * arm2, y: elbow.y + Math.sin(a1) * arm2 };
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = armWidth;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(elbow.x, elbow.y);
+        ctx.lineTo(hand.x, hand.y);
+        ctx.stroke();
+    }
+    drawArm('left');
+    drawArm('right');
+    ctx.fillStyle = '#777';
+    ctx.beginPath();
+    ctx.arc(0, 0, ogre.size, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
     if (ogre.burn && ogre.burn > 0) {
         ctx.save();
@@ -944,6 +1229,39 @@ function drawProjectile(p) {
         ctx.fillStyle = 'white';
         ctx.beginPath();
         ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (p.type === 'arrow') {
+        ctx.drawImage(arrowImg, p.x - 8, p.y - 8, 16, 16);
+    } else if (p.type === 'missile') {
+        const ang = Math.atan2(p.vy, p.vx);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(ang);
+        ctx.fillStyle = 'gray';
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.moveTo(6, -4);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(6, 4);
+        ctx.fill();
+        ctx.restore();
+    } else if (p.type === 'bomb') {
+        ctx.fillStyle = 'orange';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (p.type === 'smoke') {
+        const radius = p.radius || 60;
+        const me = players[myPlayerId];
+        const inner = me && me.class === 'rogue' ? 'rgba(128,128,128,0.4)' : 'rgba(90,90,90,0.6)';
+        const outer = me && me.class === 'rogue' ? 'rgba(128,128,128,0)' : 'rgba(90,90,90,0)';
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
+        grad.addColorStop(0, inner);
+        grad.addColorStop(1, outer);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.fill();
     } else {
         ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
@@ -1011,7 +1329,9 @@ function render() {
     }
     ctx.translate(-camera.x, -camera.y);
     ctx.fillStyle = '#5c8b5c';
-    ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    ctx.fillRect(0, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
+    ctx.fillStyle = '#8cc68c';
+    ctx.fillRect(OLD_WORLD_WIDTH, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
     ctx.strokeStyle = 'rgba(0,0,0,0.1)';
     ctx.lineWidth = 1;
     for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); }
@@ -1021,10 +1341,20 @@ function render() {
     boars.forEach(drawBoar);
     ogres.forEach(drawOgre);
     projectiles.forEach(drawProjectile);
+    explosions.forEach(ex => {
+        const alpha = ex.timer / 30;
+        ctx.fillStyle = `rgba(255,0,0,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ex.timer--;
+    });
+    explosions = explosions.filter(ex => ex.timer > 0);
     zombies.forEach(drawZombie);
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
     ctx.restore();
+
     ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (darkness > 0) {
@@ -1064,6 +1394,21 @@ function render() {
         });
         ctx.restore();
     }
+    const me = players[myPlayerId];
+    if (me) {
+        for (const p of projectiles) {
+            if (p.type === 'smoke') {
+                const radius = p.radius || 60;
+                if (Math.hypot(me.x - p.x, me.y - p.y) < radius) {
+                    if (me.class !== 'rogue') {
+                        ctx.fillStyle = 'rgba(128,128,128,0.6)';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    }
+                    break;
+                }
+            }
+        }
+    }
     if (deathFadeDir !== 0) {
         deathFade += 0.02 * deathFadeDir;
         if (deathFade >= 1) { deathFade = 1; deathFadeDir = -1; }
@@ -1101,6 +1446,8 @@ function gameLoop() {
             }
         }
         updateSummonerBar();
+        updateAbilityIndicator();
+        updateAttackBar();
     }
     render();
     requestAnimationFrame(gameLoop);
@@ -1142,16 +1489,52 @@ window.addEventListener('keydown', e => {
         const idx = types.indexOf(summonerSpawnType);
         summonerSpawnType = types[(idx + 1) % types.length];
         updateSummonerBar();
+        updateAbilityIndicator();
     }
 });
 window.addEventListener('wheel', e => {
-    if (document.activeElement !== chatInput && players[myPlayerId]?.class === 'summoner') {
-        const types = ['attack', 'healer', 'ranged'];
-        let idx = types.indexOf(summonerSpawnType);
-        idx = (idx + (e.deltaY > 0 ? 1 : -1) + types.length) % types.length;
-        summonerSpawnType = types[idx];
-        updateSummonerBar();
-        e.preventDefault();
+    if (document.activeElement !== chatInput) {
+        const me = players[myPlayerId];
+        if (me?.class === 'summoner') {
+            const types = ['attack', 'healer', 'ranged'];
+            let idx = types.indexOf(summonerSpawnType);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + types.length) % types.length;
+            summonerSpawnType = types[idx];
+            updateSummonerBar();
+            e.preventDefault();
+        } else if (me?.class === 'mage' && (me.canSlow || me.canBind || me.canMissile)) {
+            const spells = [];
+            if (me.canSlow) spells.push('slow');
+            if (me.canBind) spells.push('bind');
+            if (me.canMissile) spells.push('missile');
+            let idx = spells.indexOf(selectedMageSpell);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + spells.length) % spells.length;
+            selectedMageSpell = spells[idx];
+            updateAbilityIndicator();
+            e.preventDefault();
+        } else if (me?.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
+            const abilities = ['non'];
+            if (me.knightSkills['knight-shield']) abilities.push('dash');
+            if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
+            let idx = abilities.indexOf(selectedKnightAbility);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + abilities.length) % abilities.length;
+            selectedKnightAbility = abilities[idx];
+            updateAbilityIndicator();
+            e.preventDefault();
+        } else if (me?.class === 'rogue') {
+            const abilities = [];
+            if (me.canBomb) abilities.push('bomb');
+            if (me.canSmoke) abilities.push('smoke');
+            if (me.canTeleport) abilities.push('teleport');
+            if (me.rogueSkills && me.rogueSkills['rogue-bow']) abilities.push('bow');
+            if (abilities.length > 0) {
+                let idx = abilities.indexOf(selectedRogueAbility);
+                idx = (idx + (e.deltaY > 0 ? 1 : -1) + abilities.length) % abilities.length;
+                selectedRogueAbility = abilities[idx];
+                updateAbilityIndicator();
+                e.preventDefault();
+            }
+        }
     }
 }, { passive: false });
 window.addEventListener('keydown', e => {
@@ -1161,18 +1544,43 @@ window.addEventListener('keydown', e => {
         if (e.code === 'Space') {
             if (me.class === 'summoner') {
                 if (me.mana >= 100) {
-                    socket.send(JSON.stringify({ type: 'spawn-minion', minionType: summonerSpawnType }));
+                    safeSend({ type: 'spawn-minion', minionType: summonerSpawnType });
                 }
-            } else if (me.class === 'mage' && me.canSlow) {
+            } else if (me.class === 'mage') {
                 const targetX = mousePos.x + camera.x;
                 const targetY = mousePos.y + camera.y;
-                socket.send(JSON.stringify({ type: 'cast-slow', targetX, targetY }));
+                if (selectedMageSpell === 'bind' && me.canBind) {
+                    safeSend({ type: 'cast-bind', targetX, targetY });
+                } else if (selectedMageSpell === 'slow' && me.canSlow) {
+                    safeSend({ type: 'cast-slow', targetX, targetY });
+                } else if (selectedMageSpell === 'missile' && me.canMissile && me.mana >= 75) {
+                    safeSend({ type: 'cast-missile' });
+                }
+            } else if (me.class === 'knight' && me.knightSkills) {
+                if (selectedKnightAbility === 'dash' && me.knightSkills['knight-shield']) {
+                    const targetX = mousePos.x + camera.x;
+                    const targetY = mousePos.y + camera.y;
+                    safeSend({ type: 'shield-dash', targetX, targetY });
+                } else if (selectedKnightAbility === 'whirlwind' && me.knightSkills['knight-whirlwind'] && (!me.whirlwindCooldown || me.whirlwindCooldown <= 0)) {
+                    players[myPlayerId].whirlwindTime = 20;
+                    safeSend({ type: 'knight-whirlwind' });
+                }
+            } else if (me.class === 'rogue') {
+                const targetX = mousePos.x + camera.x;
+                const targetY = mousePos.y + camera.y;
+                if (selectedRogueAbility === 'bomb' && me.canBomb) {
+                    safeSend({ type: 'rogue-bomb', targetX, targetY });
+                } else if (selectedRogueAbility === 'smoke' && me.canSmoke) {
+                    safeSend({ type: 'rogue-smoke', targetX, targetY });
+                } else if (selectedRogueAbility === 'teleport' && me.canTeleport) {
+                    me.x = targetX;
+                    me.y = targetY;
+                    safeSend({ type: 'rogue-teleport', targetX, targetY });
+                    safeSend({ type: 'move', x: me.x, y: me.y });
+                } else if (selectedRogueAbility === 'bow') {
+                    safeSend({ type: 'shoot-arrow', targetX, targetY });
+                }
             }
-            e.preventDefault();
-        } else if (e.code === 'KeyB' && me.class === 'mage' && me.canBind) {
-            const targetX = mousePos.x + camera.x;
-            const targetY = mousePos.y + camera.y;
-            socket.send(JSON.stringify({ type: 'cast-bind', targetX, targetY }));
             e.preventDefault();
         }
     }
@@ -1203,7 +1611,7 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
         socket.send(JSON.stringify({ type: 'unlock-skill', skill: 'range' }));
     }
 });
-[mageNode, knightNode, summonerNode].forEach(node => {
+[mageNode, knightNode, summonerNode, rogueNode].forEach(node => {
     if (!node) return;
     node.addEventListener('click', () => {
         const me = players[myPlayerId];
@@ -1213,7 +1621,7 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
         }
     });
 });
-[...knightSkillNodes, ...summonerSkillNodes, ...mageSkillNodes].forEach(node => {
+[...knightSkillNodes, ...summonerSkillNodes, ...mageSkillNodes, ...rogueSkillNodes].forEach(node => {
     if (!node) return;
     node.addEventListener('click', () => {
         const me = players[myPlayerId];
@@ -1221,12 +1629,22 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
         if (!me || me.skillPoints <= 0) return;
         if (me.class === 'knight') {
             if (!me.knightSkills || !me.knightSkills[skill]) {
-                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+                const prereq = knightSkillPrereqs[skill];
+                if (!prereq || (me.knightSkills && me.knightSkills[prereq])) {
+                    socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+                }
             }
         } else if (me.class === 'summoner') {
             socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
         } else if (me.class === 'mage') {
             if (!me.mageSkills || !me.mageSkills[skill]) {
+                const prereq = mageSkillPrereqs[skill];
+                if (!prereq || (me.mageSkills && me.mageSkills[prereq])) {
+                    socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+                }
+            }
+        } else if (me.class === 'rogue') {
+            if (!me.rogueSkills || !me.rogueSkills[skill]) {
                 socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
             }
         }

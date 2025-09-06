@@ -14,6 +14,7 @@
     <div id="ui-container">
         <div id="player-health-bar"><div id="player-health-fill"></div></div>
         <div id="player-mana-bar"><div id="player-mana-fill"></div></div>
+        <div id="player-attack-bar" class="hidden"><div id="player-attack-fill"></div></div>
         <!-- ... hotbar, clock, chat ... (no changes here) -->
         <div id="hotbar">
             <div class="slot" id="hotbar-0">1</div>
@@ -22,6 +23,7 @@
             <div class="slot" id="hotbar-3">4</div>
         </div>
         <div id="summoner-bar" class="hidden"></div>
+        <div id="ability-indicator" class="hidden"></div>
         <div id="chat-container"><ul id="chat-messages"></ul><input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="100"></div>
         <div id="level-indicator">Level: 1</div>
     </div>
@@ -63,9 +65,10 @@
                     <div id="mage-skills" class="class-skills hidden">
                         <div id="skill-mage-mana" class="skill-node locked" data-skill="mage-mana">More Mana</div>
                         <div id="skill-mage-regen" class="skill-node locked" data-skill="mage-regen">Faster Mana Regen</div>
-                        <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Spacebar)</div>
-                        <div id="skill-mage-slow-extend" class="skill-node locked hidden" data-skill="mage-slow-extend">Extend Slow to 10s</div>
-                        <div id="skill-mage-bind" class="skill-node locked hidden" data-skill="mage-bind">Binding Spell (B)</div>
+                        <div id="skill-mage-slow" class="skill-node locked" data-skill="mage-slow">Slow Spell (Space)</div>
+                        <div id="skill-mage-slow-extend" class="skill-node locked" data-skill="mage-slow-extend">Extend Slow to 10s</div>
+                        <div id="skill-mage-bind" class="skill-node locked" data-skill="mage-bind">Binding Spell (Space)</div>
+                        <div id="skill-mage-missile" class="skill-node locked" data-skill="mage-missile">Missile Spell (Space)</div>
                     </div>
                 </div>
                 <div class="class-column">
@@ -74,19 +77,30 @@
                         <div id="skill-knight-damage" class="skill-node locked" data-skill="knight-damage">Sword Damage</div>
                         <div id="skill-knight-speed" class="skill-node locked" data-skill="knight-speed">Speed</div>
                         <div id="skill-knight-health" class="skill-node locked" data-skill="knight-health">Health</div>
-                    </div>
+                    <div id="skill-knight-shield" class="skill-node locked" data-skill="knight-shield">Dash (Space)</div>
+                    <div id="skill-knight-whirlwind" class="skill-node locked" data-skill="knight-whirlwind">Whirlwind (Space)</div>
                 </div>
-                <div class="class-column">
-                    <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
+            </div>
+            <div class="class-column">
+                <div id="skill-summoner" class="skill-node locked" data-skill="summoner">Summoner</div>
                     <div id="summoner-skills" class="class-skills hidden">
                         <div id="skill-summoner-attack" class="skill-node locked" data-skill="summoner-attack">+1 Attack Minion</div>
                         <div id="skill-summoner-healer" class="skill-node locked" data-skill="summoner-healer">+1 Healer Minion</div>
-                        <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
-                    </div>
+                    <div id="skill-summoner-ranged" class="skill-node locked" data-skill="summoner-ranged">+1 Ranged Minion</div>
+                </div>
+            </div>
+            <div class="class-column">
+                <div id="skill-rogue" class="skill-node locked" data-skill="rogue">Rogue</div>
+                <div id="rogue-skills" class="class-skills hidden">
+                    <div id="skill-rogue-bomb" class="skill-node locked" data-skill="rogue-bomb">Bomb (Space)</div>
+                    <div id="skill-rogue-smoke" class="skill-node locked" data-skill="rogue-smoke">Smoke Bomb (Space)</div>
+                    <div id="skill-rogue-teleport" class="skill-node locked" data-skill="rogue-teleport">Teleport (Space)</div>
+                    <div id="skill-rogue-bow" class="skill-node locked" data-skill="rogue-bow">Bow Mastery</div>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
     <div id="controls-screen">
         <h2>Controls</h2>
@@ -97,8 +111,8 @@
             <li>E - Inventory</li>
             <li>Q - Skill Tree</li>
             <li>Enter - Chat</li>
-            <li>Space - Class Ability (e.g., Slow Spell)</li>
-            <li>B - Binding Spell</li>
+            <li>Space - Class Ability</li>
+            <li>Scroll - Change Ability/Spell</li>
         </ul>
         <button id="controls-btn">Continue</button>
     </div>
@@ -106,6 +120,27 @@
     <div id="pre-spawn-screen" class="hidden">
         <h2>Choose your name</h2>
         <input type="text" id="name-input" maxlength="20">
+        <button id="customize-btn">Customize Character</button>
+        <div id="customization-panel" class="hidden">
+            <div class="options">
+                <h3>Color</h3>
+                <input type="color" id="color-input" value="#ff0000">
+                <h3>Eye Color</h3>
+                <input type="color" id="eye-color-input" value="#cccccc">
+                <h3>Mouth Type</h3>
+                <select id="mouth-select">
+                    <option value="line">Line</option>
+                    <option value="square">Square</option>
+                    <option value="circle">Circle</option>
+                    <option value="oval">Oval</option>
+                    <option value="diamond">Diamond</option>
+                    <option value="triangle">Triangle</option>
+                </select>
+                <h3>Mouth Color</h3>
+                <input type="color" id="mouth-color-input" value="#000000">
+            </div>
+            <canvas id="preview-canvas" width="100" height="100"></canvas>
+        </div>
         <button id="start-btn">Start</button>
     </div>
 
@@ -115,6 +150,7 @@
             <button class="class-option" data-class="knight">Knight</button>
             <button class="class-option" data-class="mage">Mage</button>
             <button class="class-option" data-class="summoner">Summoner</button>
+            <button class="class-option" data-class="rogue">Rogue</button>
         </div>
     </div>
 
