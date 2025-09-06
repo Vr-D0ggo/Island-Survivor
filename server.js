@@ -113,6 +113,14 @@ function generateWorld() {
     // Sparse resources in the new lighter area
     placeResource('tree', 30, [2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
     placeResource('rock', 15, [1, 2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
+    // Transform rocks in the plains into passive rock monsters
+    resources = resources.filter(r => {
+        if (r.type === 'rock' && r.x >= OLD_WORLD_WIDTH) {
+            ogres.push(createOgre(r.x, r.y));
+            return false;
+        }
+        return true;
+    });
 
     // Wall separating woods and plains with a small entrance
     const wallX = OLD_WORLD_WIDTH - GRID_CELL_SIZE;
@@ -269,6 +277,7 @@ function createOgre(x, y) {
         vx: 0,
         vy: 0,
         target: null,
+        aggressive: false,
         burn: 0,
         slow: 0,
         bind: 0,
@@ -396,6 +405,7 @@ function handleDashDamage(player, angle, playerId) {
                 broadcast({ type: 'ogre-update', ogre });
                 break;
             } else {
+                ogre.aggressive = true;
                 ogre.target = { type: 'player', id: playerId };
                 broadcast({ type: 'ogre-update', ogre });
             }
@@ -435,8 +445,8 @@ function handleWhirlwindDamage(player, playerId) {
                     const c = [...wss.clients].find(cl => cl.id === playerId);
                     if (c) levelUp(player, c);
                 } else {
-                    if (type !== 'ogre') { obj.aggressive = true; obj.target = { type: 'player', id: playerId }; }
-                    else { obj.target = { type: 'player', id: playerId }; }
+                    obj.aggressive = true;
+                    obj.target = { type: 'player', id: playerId };
                 }
                 const updateType = type === 'boar' ? 'boar-update' : type === 'zombie' ? 'zombie-update' : 'ogre-update';
                 broadcast({ type: updateType, [type === 'boar' ? 'boar' : type === 'zombie' ? 'zombie' : 'ogre']: obj });
@@ -834,6 +844,7 @@ wss.on('connection', ws => {
                         dmg += player.swordDamage || 0;
                     }
                     ogre.hp -= dmg;
+                    ogre.aggressive = true;
                     ogre.target = { type: 'player', id: playerId };
                     if (ogre.hp <= 0) {
                         ogres = ogres.filter(o => o.id !== ogre.id);
@@ -1352,6 +1363,7 @@ function gameLoop() {
                 if (proj.type === 'bomb') {
                     const radius = 40;
                     const damage = 4;
+                    broadcast({ type: 'bomb-explode', x: proj.x, y: proj.y, radius });
                     for (const id in players) {
                         const p = players[id];
                         if (!p.active) continue;
@@ -1804,6 +1816,11 @@ function gameLoop() {
         ogre.speed = ogre.baseSpeed;
         if (ogre.bind > 0) { ogre.bind--; ogre.speed = 0; }
         else if (ogre.slow > 0) { ogre.slow--; ogre.speed = ogre.baseSpeed * 0.5; }
+        if (!ogre.aggressive) {
+            ogre.vx = 0;
+            ogre.vy = 0;
+            continue;
+        }
         if (ogre.cooldown > 0) ogre.cooldown--;
         if (ogre.smashCooldown > 0) ogre.smashCooldown--;
 
