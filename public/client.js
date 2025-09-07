@@ -185,11 +185,12 @@ const mageSkillPrereqs = {
 };
 const rogueSkillNodes = [
     document.getElementById('skill-rogue-bomb'),
+    document.getElementById('skill-rogue-sticky'),
     document.getElementById('skill-rogue-smoke'),
     document.getElementById('skill-rogue-teleport'),
     document.getElementById('skill-rogue-bow')
 ];
-const rogueSkillPrereqs = { 'rogue-smoke': 'rogue-bomb' };
+const rogueSkillPrereqs = { 'rogue-smoke': 'rogue-bomb', 'rogue-sticky': 'rogue-bomb' };
 
 function renderMouth(ctx, x, y, size, type, color) {
     ctx.fillStyle = color;
@@ -587,6 +588,7 @@ socket.onmessage = event => {
                     clientPlayer.canBomb = serverPlayer.canBomb;
                     clientPlayer.canSmoke = serverPlayer.canSmoke;
                     clientPlayer.canTeleport = serverPlayer.canTeleport;
+                    clientPlayer.stickyBomb = serverPlayer.stickyBomb;
                     clientPlayer.rogueSkills = serverPlayer.rogueSkills || {};
                     clientPlayer.color = serverPlayer.color;
                     clientPlayer.eyeColor = serverPlayer.eyeColor || '#ccc';

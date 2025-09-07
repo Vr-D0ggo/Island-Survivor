@@ -361,6 +361,8 @@ canvas {
 
 #rogue-skills { grid-template-columns: repeat(3, 150px); }
 #skill-rogue-bomb { grid-column: 1; grid-row: 1; }
+#skill-rogue-smoke { grid-column: 1; grid-row: 2; }
+#skill-rogue-sticky { grid-column: 2; grid-row: 2; }
 #skill-rogue-teleport { grid-column: 2; grid-row: 1; }
 #skill-rogue-bow { grid-column: 3; grid-row: 1; }
 
