@@ -150,11 +150,13 @@ const knightSkillNodes = [
     document.getElementById('skill-knight-speed'),
     document.getElementById('skill-knight-health'),
     document.getElementById('skill-knight-shield'),
-    document.getElementById('skill-knight-whirlwind')
+    document.getElementById('skill-knight-whirlwind'),
+    document.getElementById('skill-knight-attack-range')
 ];
 const knightSkillPrereqs = {
     'knight-shield': 'knight-speed',
-    'knight-whirlwind': 'knight-damage'
+    'knight-whirlwind': 'knight-damage',
+    'knight-attack-range': 'knight-whirlwind'
 };
 const summonerSkillNodes = [
     document.getElementById('skill-summoner-attack'),
@@ -1272,7 +1274,7 @@ function drawProjectile(p) {
         ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
         ctx.fill();
     } else if (p.type === 'smoke') {
-        const radius = p.radius || 60;
+        const radius = p.radius || 120;
         const me = players[myPlayerId];
         const inner = me && me.class === 'rogue' ? 'rgba(128,128,128,0.4)' : 'rgba(90,90,90,0.6)';
         const outer = me && me.class === 'rogue' ? 'rgba(128,128,128,0)' : 'rgba(90,90,90,0)';
@@ -1427,12 +1429,10 @@ function render() {
     if (me) {
         for (const p of projectiles) {
             if (p.type === 'smoke') {
-                const radius = p.radius || 60;
+                const radius = p.radius || 120;
                 if (Math.hypot(me.x - p.x, me.y - p.y) < radius) {
-                    if (me.class !== 'rogue') {
-                        ctx.fillStyle = 'rgba(128,128,128,0.6)';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    }
+                    ctx.fillStyle = 'gray';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
                     break;
                 }
             }
