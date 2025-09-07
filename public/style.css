@@ -339,9 +339,10 @@ canvas {
 #mage-skills { grid-template-columns: repeat(3, 150px); }
 #skill-mage-mana { grid-column: 1; grid-row: 1; }
 #skill-mage-regen { grid-column: 2; grid-row: 1; }
+#skill-mage-flame { grid-column: 2; grid-row: 2; }
 #skill-mage-slow { grid-column: 3; grid-row: 1; }
 #skill-mage-missile { grid-column: 1; grid-row: 2; }
-#skill-mage-missile-upgrade { grid-column: 2; grid-row: 2; }
+#skill-mage-missile-upgrade { grid-column: 1; grid-row: 3; }
 #skill-mage-slow-extend { grid-column: 3; grid-row: 2; }
 #skill-mage-bind { grid-column: 3; grid-row: 3; }
 

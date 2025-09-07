@@ -164,6 +164,7 @@ const summonerSkillNodes = [
 const mageSkillNodes = [
     document.getElementById('skill-mage-mana'),
     document.getElementById('skill-mage-regen'),
+    document.getElementById('skill-mage-flame'),
     document.getElementById('skill-mage-slow'),
     document.getElementById('skill-mage-slow-extend'),
     document.getElementById('skill-mage-bind'),
@@ -174,7 +175,8 @@ const mageSkillPrereqs = {
     'mage-slow-extend': 'mage-slow',
     'mage-bind': 'mage-slow-extend',
     'mage-missile': 'mage-mana',
-    'mage-missile-upgrade': 'mage-missile'
+    'mage-missile-upgrade': 'mage-missile',
+    'mage-flame': 'mage-regen'
 };
 const rogueSkillNodes = [
     document.getElementById('skill-rogue-bomb'),
@@ -436,13 +438,14 @@ function updateAbilityIndicator() {
         if (abilityIndicator) abilityIndicator.classList.add('hidden');
         return;
     }
-    if (me.class === 'mage' && (me.canSlow || me.canBind || me.canMissile)) {
+    if (me.class === 'mage' && (me.canSlow || me.canBind || me.canMissile || me.canFlame)) {
         const spells = [];
         if (me.canSlow) spells.push('slow');
         if (me.canBind) spells.push('bind');
         if (me.canMissile) spells.push('missile');
+        if (me.canFlame) spells.push('flame');
         if (!spells.includes(selectedMageSpell)) selectedMageSpell = spells[0];
-        const labelMap = { slow: 'Slow', bind: 'Bind', missile: 'Missile' };
+        const labelMap = { slow: 'Slow', bind: 'Bind', missile: 'Missile', flame: 'Flame' };
         abilityIndicator.textContent = `Spell: ${labelMap[selectedMageSpell]}`;
         abilityIndicator.classList.remove('hidden');
     } else if (me.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
@@ -575,6 +578,7 @@ socket.onmessage = event => {
                     clientPlayer.canSlow = serverPlayer.canSlow;
                     clientPlayer.canBind = serverPlayer.canBind;
                     clientPlayer.canMissile = serverPlayer.canMissile;
+                    clientPlayer.canFlame = serverPlayer.canFlame;
                     clientPlayer.canBomb = serverPlayer.canBomb;
                     clientPlayer.canSmoke = serverPlayer.canSmoke;
                     clientPlayer.canTeleport = serverPlayer.canTeleport;
@@ -1279,6 +1283,15 @@ function drawProjectile(p) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.fill();
+    } else if (p.type === 'flame') {
+        const radius = p.radius || 60;
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
+        grad.addColorStop(0, 'rgba(255,0,0,0.5)');
+        grad.addColorStop(1, 'rgba(255,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
     } else {
         ctx.drawImage(fireBallImg, p.x - 8, p.y - 8, 16, 16);
     }
@@ -1518,11 +1531,12 @@ window.addEventListener('wheel', e => {
             summonerSpawnType = types[idx];
             updateSummonerBar();
             e.preventDefault();
-        } else if (me?.class === 'mage' && (me.canSlow || me.canBind || me.canMissile)) {
+        } else if (me?.class === 'mage' && (me.canSlow || me.canBind || me.canMissile || me.canFlame)) {
             const spells = [];
             if (me.canSlow) spells.push('slow');
             if (me.canBind) spells.push('bind');
             if (me.canMissile) spells.push('missile');
+            if (me.canFlame) spells.push('flame');
             let idx = spells.indexOf(selectedMageSpell);
             idx = (idx + (e.deltaY > 0 ? 1 : -1) + spells.length) % spells.length;
             selectedMageSpell = spells[idx];
@@ -1571,6 +1585,8 @@ window.addEventListener('keydown', e => {
                     safeSend({ type: 'cast-slow', targetX, targetY });
                 } else if (selectedMageSpell === 'missile' && me.canMissile && me.mana >= 75) {
                     safeSend({ type: 'cast-missile', targetX, targetY });
+                } else if (selectedMageSpell === 'flame' && me.canFlame && me.mana >= 10) {
+                    safeSend({ type: 'cast-flame', targetX, targetY });
                 }
             } else if (me.class === 'knight' && me.knightSkills) {
                 if (selectedKnightAbility === 'dash' && me.knightSkills['knight-shield']) {

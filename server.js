@@ -336,27 +336,25 @@ function getNearestPlayer(entity) {
     }
     return nearest;
 }
-function findNearestTarget(player) {
+function findNearestTarget(src) {
     let nearest = null;
     let dist = Infinity;
-    for (const [id, p] of Object.entries(players)) {
-        if (id !== player.id && p.active) {
-            const d = getDistance(player, p);
-            if (d < dist) { dist = d; nearest = { type: 'player', id }; }
+    const dir = src.dir;
+    function consider(obj, type, id) {
+        if (dir) {
+            const toX = obj.x - src.x;
+            const toY = obj.y - src.y;
+            if (toX * dir.x + toY * dir.y <= 0) return;
         }
+        const d = getDistance(src, obj);
+        if (d < dist) { dist = d; nearest = { type, id }; }
     }
-    for (const boar of boars) {
-        const d = getDistance(player, boar);
-        if (d < dist) { dist = d; nearest = { type: 'boar', id: boar.id }; }
+    for (const [id, p] of Object.entries(players)) {
+        if (id !== src.id && p.active) consider(p, 'player', id);
     }
-    for (const zombie of zombies) {
-        const d = getDistance(player, zombie);
-        if (d < dist) { dist = d; nearest = { type: 'zombie', id: zombie.id }; }
-    }
-    for (const ogre of ogres) {
-        const d = getDistance(player, ogre);
-        if (d < dist) { dist = d; nearest = { type: 'ogre', id: ogre.id }; }
-    }
+    for (const boar of boars) consider(boar, 'boar', boar.id);
+    for (const zombie of zombies) consider(zombie, 'zombie', zombie.id);
+    for (const ogre of ogres) consider(ogre, 'ogre', ogre.id);
     return nearest;
 }
 // Count a player's items using an exact name match so crafted items
@@ -693,6 +691,7 @@ wss.on('connection', ws => {
         canSlow: false,
         canBind: false,
         canMissile: false,
+        canFlame: false,
         canBomb: false,
         canSmoke: false,
         canTeleport: false,
@@ -964,19 +963,22 @@ wss.on('connection', ws => {
                         if (skill === 'summoner-attack') player.summonerSkills.attack++;
                         else if (skill === 'summoner-healer') player.summonerSkills.healer++;
                         else if (skill === 'summoner-ranged') player.summonerSkills.ranged++;
-                    } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-slow', 'mage-slow-extend', 'mage-bind', 'mage-missile', 'mage-missile-upgrade'].includes(skill)) {
+                    } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-flame', 'mage-slow', 'mage-slow-extend', 'mage-bind', 'mage-missile', 'mage-missile-upgrade'].includes(skill)) {
                         if (!player.mageSkills) player.mageSkills = {};
                         if (!player.mageSkills[skill]) {
                             if (skill === 'mage-slow-extend' && !player.mageSkills['mage-slow']) break;
                             if (skill === 'mage-bind' && !player.mageSkills['mage-slow-extend']) break;
                             if (skill === 'mage-missile' && !player.mageSkills['mage-mana']) break;
                             if (skill === 'mage-missile-upgrade' && !player.mageSkills['mage-missile']) break;
+                            if (skill === 'mage-flame' && !player.mageSkills['mage-regen']) break;
                             player.skillPoints--;
                             player.mageSkills[skill] = true;
                             if (skill === 'mage-mana') {
                                 player.maxMana += 20; player.mana += 20;
                             } else if (skill === 'mage-regen') {
                                 player.manaRegen += 0.5 / 60;
+                            } else if (skill === 'mage-flame') {
+                                player.canFlame = true;
                             } else if (skill === 'mage-slow') {
                                 player.canSlow = true;
                             } else if (skill === 'mage-slow-extend') {
@@ -1052,9 +1054,34 @@ wss.on('connection', ws => {
                         const angle = Math.atan2(targetY - player.y, targetX - player.x);
                         const speed = 2;
                         const spawnDist = player.size + 20;
-                        const sx = player.x + Math.cos(angle) * spawnDist;
-                        const sy = player.y + Math.sin(angle) * spawnDist;
-                        projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId, type: 'missile', lockTimer: 15 });
+                        const angles = player.missileUpgrade ? [angle - 0.1, angle + 0.1] : [angle];
+                        for (const a of angles) {
+                            const sx = player.x + Math.cos(a) * spawnDist;
+                            const sy = player.y + Math.sin(a) * spawnDist;
+                            projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, owner: playerId, type: 'missile', lockTimer: 15 });
+                        }
+                    }
+                }
+                break;
+            }
+            case 'cast-flame': {
+                if (player.class === 'mage' && player.canFlame && player.mana >= 10) {
+                    player.mana -= 10;
+                    const { targetX, targetY } = data;
+                    if (typeof targetX === 'number' && typeof targetY === 'number') {
+                        const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                        const speed = 4;
+                        projectiles.push({
+                            id: nextProjectileId++,
+                            x: player.x,
+                            y: player.y,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            owner: playerId,
+                            type: 'flame',
+                            timer: 120,
+                            radius: 60,
+                        });
                     }
                 }
                 break;
@@ -1411,7 +1438,7 @@ function gameLoop() {
     }
 
     for (const proj of projectiles) {
-        if (proj.type === 'bomb' || proj.type === 'smoke') {
+        if (proj.type === 'bomb' || proj.type === 'smoke' || proj.type === 'flame') {
             proj.timer--;
             proj.x += proj.vx;
             proj.y += proj.vy;
@@ -1462,6 +1489,24 @@ function gameLoop() {
                 }
             }
 
+            if (proj.type === 'flame') {
+                const radius = proj.radius || 60;
+                for (const id in players) {
+                    const p = players[id];
+                    if (!p.active) continue;
+                    if (getDistance(p, proj) < radius) p.burn = 120;
+                }
+                for (const boar of boars) {
+                    if (getDistance(boar, proj) < radius) boar.burn = 120;
+                }
+                for (const zombie of zombies) {
+                    if (getDistance(zombie, proj) < radius) zombie.burn = 120;
+                }
+                for (const ogre of ogres) {
+                    if (getDistance(ogre, proj) < radius) ogre.burn = 120;
+                }
+            }
+
             if (proj.timer <= 0) {
                 if (proj.type === 'bomb') {
                     const radius = 40;
@@ -1505,7 +1550,7 @@ function gameLoop() {
         if (proj.type === 'missile') {
             if (proj.lockTimer > 0) proj.lockTimer--;
             if (!proj.targetType && proj.lockTimer <= 0) {
-                const target = findNearestTarget({ x: proj.x, y: proj.y, id: proj.owner });
+                const target = findNearestTarget({ x: proj.x, y: proj.y, id: proj.owner, dir: { x: proj.vx, y: proj.vy } });
                 if (target) {
                     proj.targetType = target.type;
                     proj.targetId = target.id;
