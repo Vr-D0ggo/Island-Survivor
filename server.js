@@ -621,6 +621,38 @@ function moveToward(entity, target) {
     entity.vy = 0;
 }
 
+function moveAway(entity, target) {
+    const dx = entity.x - target.x;
+    const dy = entity.y - target.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) return;
+    let angle = Math.atan2(dy, dx);
+    for (let i = 0; i < 16; i++) {
+        const vx = Math.cos(angle) * entity.speed;
+        const vy = Math.sin(angle) * entity.speed;
+        const nx = entity.x + vx;
+        const ny = entity.y + vy;
+        if (!isBlocked(nx, ny, entity.size) && !collidesWithEntities(nx, ny, entity.size, entity)) {
+            entity.vx = vx;
+            entity.vy = vy;
+            return;
+        }
+        angle += Math.PI / 8;
+    }
+    entity.vx = 0;
+    entity.vy = 0;
+}
+
+function commandPlayerMinions(ownerId, targetType, targetId) {
+    for (const z of zombies) {
+        if (z.ownerId === ownerId) {
+            z.aggressive = true;
+            z.target = { type: targetType, id: targetId };
+            z.commanded = true;
+        }
+    }
+}
+
 function isInShadow(entity) {
     for (const r of resources) {
         if (!r.harvested && getDistance(entity, r) < r.size) return true;
@@ -686,7 +718,14 @@ wss.on('connection', ws => {
         skillPoints: 0,
         skills: {},
         knightSkills: {},
-        summonerSkills: { attack: 0, healer: 0, ranged: 0 },
+        summonerSkills: {
+            attack: 0,
+            healer: 0,
+            ranged: 0,
+            'summoner-ranged-stop': false,
+            'summoner-ranged-flee': false,
+            'summoner-lockon': false
+        },
         mageSkills: {},
         rogueSkills: {},
         canSlow: false,
@@ -829,6 +868,9 @@ wss.on('connection', ws => {
                     }
                     target.hp = Math.max(0, target.hp - dmg);
                     target.lastHitBy = playerId;
+                    if (player.summonerSkills && player.summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(playerId, 'player', data.targetId);
+                    }
                     const c = [...wss.clients].find(cl => cl.id === data.targetId);
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
                     if (data.item && data.item.toLowerCase() === 'mace') {
@@ -848,6 +890,9 @@ wss.on('connection', ws => {
                         dmg += player.swordDamage || 0;
                     }
                     boar.hp -= dmg;
+                    if (player.summonerSkills && player.summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(playerId, 'boar', boar.id);
+                    }
                     if (data.item && data.item.toLowerCase() === 'mace') {
                         const angle = Math.atan2(boar.y - player.y, boar.x - player.x);
                         const knock = 200;
@@ -879,6 +924,9 @@ wss.on('connection', ws => {
                         dmg += player.swordDamage || 0;
                     }
                     zombie.hp -= dmg;
+                    if (player.summonerSkills && player.summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(playerId, 'zombie', zombie.id);
+                    }
                     if (data.item && data.item.toLowerCase() === 'mace') {
                         const angle = Math.atan2(zombie.y - player.y, zombie.x - player.x);
                         const knock = 200;
@@ -904,6 +952,9 @@ wss.on('connection', ws => {
                         dmg += player.swordDamage || 0;
                     }
                     ogre.hp -= dmg;
+                    if (player.summonerSkills && player.summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(playerId, 'ogre', ogre.id);
+                    }
                     if (data.item && data.item.toLowerCase() === 'mace') {
                         const angle = Math.atan2(ogre.y - player.y, ogre.x - player.x);
                         const knock = 200;
@@ -960,12 +1011,42 @@ wss.on('connection', ws => {
                             else if (skill === 'knight-health') { player.maxHp += 5; player.hp += 5; }
                             else if (skill === 'knight-attack-range') { player.attackRange = (player.attackRange || 20) * 2; }
                         }
-                    } else if (player.class === 'summoner' && ['summoner-attack', 'summoner-healer', 'summoner-ranged'].includes(skill)) {
-                        if (!player.summonerSkills) player.summonerSkills = { attack: 0, healer: 0, ranged: 0 };
-                        player.skillPoints--;
-                        if (skill === 'summoner-attack') player.summonerSkills.attack++;
-                        else if (skill === 'summoner-healer') player.summonerSkills.healer++;
-                        else if (skill === 'summoner-ranged') player.summonerSkills.ranged++;
+                    } else if (player.class === 'summoner' && ['summoner-attack', 'summoner-healer', 'summoner-ranged', 'summoner-ranged-stop', 'summoner-ranged-flee', 'summoner-lockon'].includes(skill)) {
+                        if (!player.summonerSkills) {
+                            player.summonerSkills = {
+                                attack: 0,
+                                healer: 0,
+                                ranged: 0,
+                                'summoner-ranged-stop': false,
+                                'summoner-ranged-flee': false,
+                                'summoner-lockon': false
+                            };
+                        }
+                        if (skill === 'summoner-attack') {
+                            player.skillPoints--;
+                            player.summonerSkills.attack++;
+                        } else if (skill === 'summoner-healer') {
+                            player.skillPoints--;
+                            player.summonerSkills.healer++;
+                        } else if (skill === 'summoner-ranged') {
+                            player.skillPoints--;
+                            player.summonerSkills.ranged++;
+                        } else if (skill === 'summoner-ranged-stop') {
+                            if (!player.summonerSkills['summoner-ranged-stop'] && player.summonerSkills.ranged > 0) {
+                                player.skillPoints--;
+                                player.summonerSkills['summoner-ranged-stop'] = true;
+                            }
+                        } else if (skill === 'summoner-ranged-flee') {
+                            if (!player.summonerSkills['summoner-ranged-flee'] && player.summonerSkills['summoner-ranged-stop']) {
+                                player.skillPoints--;
+                                player.summonerSkills['summoner-ranged-flee'] = true;
+                            }
+                        } else if (skill === 'summoner-lockon') {
+                            if (!player.summonerSkills['summoner-lockon']) {
+                                player.skillPoints--;
+                                player.summonerSkills['summoner-lockon'] = true;
+                            }
+                        }
                     } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-flame', 'mage-slow', 'mage-slow-extend', 'mage-bind', 'mage-missile', 'mage-missile-upgrade'].includes(skill)) {
                         if (!player.mageSkills) player.mageSkills = {};
                         if (!player.mageSkills[skill]) {
@@ -1170,20 +1251,6 @@ wss.on('connection', ws => {
                     const { targetX, targetY } = data;
                     player.x = targetX;
                     player.y = targetY;
-                }
-                break;
-            }
-            case 'command-minions': {
-                const { targetType, targetId } = data;
-                if (targetType === 'ogre') break;
-                if (player.class === 'summoner' && !(targetType === 'player' && targetId === playerId)) {
-                    for (const z of zombies) {
-                        if (z.ownerId === playerId) {
-                            z.aggressive = true;
-                            z.target = { type: targetType, id: targetId };
-                            z.commanded = true;
-                        }
-                    }
                 }
                 break;
             }
@@ -1642,6 +1709,9 @@ function gameLoop() {
                             const kc = [...wss.clients].find(cl => cl.id === proj.owner);
                             levelUp(killer, kc);
                         }
+                        if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                            commandPlayerMinions(proj.owner, 'player', id);
+                        }
                     }
                 } else {
                     if (!p.invulnerable || p.invulnerable <= 0) {
@@ -1655,6 +1725,9 @@ function gameLoop() {
                             const killer = players[proj.owner];
                             const kc = [...wss.clients].find(cl => cl.id === proj.owner);
                             levelUp(killer, kc);
+                        }
+                        if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                            commandPlayerMinions(proj.owner, 'player', id);
                         }
                     }
                 }
@@ -1685,6 +1758,9 @@ function gameLoop() {
                         if (nearestOgre) boar.target = { type: 'ogre', id: nearestOgre.id };
                         broadcast({ type: 'boar-update', boar });
                     }
+                    if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(proj.owner, 'boar', boar.id);
+                    }
                     hit = true;
                     break;
                 }
@@ -1709,6 +1785,9 @@ function gameLoop() {
                         zombie.aggressive = true;
                         broadcast({ type: 'zombie-update', zombie });
                     }
+                    if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(proj.owner, 'zombie', zombie.id);
+                    }
                     hit = true;
                     break;
                 }
@@ -1732,6 +1811,9 @@ function gameLoop() {
                         ogre.hp = Math.max(0, ogre.hp - dmg);
                         if (proj.owner) ogre.target = { type: 'player', id: proj.owner };
                         broadcast({ type: 'ogre-update', ogre });
+                    }
+                    if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(proj.owner, 'ogre', ogre.id);
                     }
                     hit = true;
                     break;
@@ -2045,10 +2127,29 @@ function gameLoop() {
                 }
                 if (!zombie.commanded && dist > 250 && zombie.giveUpTimer <= 0) { zombie.aggressive = false; zombie.target = null; zombie.commanded = false; }
                 else {
-                    moveToward(zombie, target);
-                    zombie.angle = Math.atan2(zombie.vy, zombie.vx);
+                    const owner = players[zombie.ownerId];
+                    const skills = owner ? owner.summonerSkills || {} : {};
+                    const range = 200;
+                    let moved = false;
                     if (zombie.minionType === 'ranged') {
-                        if (dist < 200 && zombie.cooldown <= 0) {
+                        if (skills['summoner-ranged-flee']) {
+                            if (dist > range) {
+                                moveToward(zombie, target);
+                            } else if (dist < range - 40) {
+                                moveAway(zombie, target);
+                            } else {
+                                zombie.vx = 0;
+                                zombie.vy = 0;
+                            }
+                            moved = true;
+                        } else if (skills['summoner-ranged-stop']) {
+                            if (dist > range) moveToward(zombie, target);
+                            else { zombie.vx = 0; zombie.vy = 0; }
+                            moved = true;
+                        }
+                        if (!moved) moveToward(zombie, target);
+                        zombie.angle = Math.atan2(zombie.vy, zombie.vx);
+                        if (dist < range && zombie.cooldown <= 0) {
                             const angle = Math.atan2(target.y - zombie.y, target.x - zombie.x);
                             const speed = 4;
                             const spawnDist = zombie.size + 5;
@@ -2058,6 +2159,8 @@ function gameLoop() {
                             zombie.cooldown = 60;
                         }
                     } else {
+                        moveToward(zombie, target);
+                        zombie.angle = Math.atan2(zombie.vy, zombie.vx);
                         if (dist < zombie.size + target.size && zombie.cooldown <= 0) {
                             if (zombie.target.type !== 'player' || target.invulnerable <= 0) {
                                 let dmg = zombie.damage;

@@ -161,7 +161,10 @@ const knightSkillPrereqs = {
 const summonerSkillNodes = [
     document.getElementById('skill-summoner-attack'),
     document.getElementById('skill-summoner-healer'),
-    document.getElementById('skill-summoner-ranged')
+    document.getElementById('skill-summoner-ranged'),
+    document.getElementById('skill-summoner-ranged-stop'),
+    document.getElementById('skill-summoner-ranged-flee'),
+    document.getElementById('skill-summoner-lockon')
 ];
 const mageSkillNodes = [
     document.getElementById('skill-mage-mana'),
@@ -574,7 +577,7 @@ socket.onmessage = event => {
                     clientPlayer.speed = serverPlayer.speed;
                     clientPlayer.baseSpeed = serverPlayer.baseSpeed;
                     clientPlayer.knightSkills = serverPlayer.knightSkills || {};
-                    clientPlayer.summonerSkills = serverPlayer.summonerSkills || { attack: 0, healer: 0, ranged: 0 };
+                    clientPlayer.summonerSkills = serverPlayer.summonerSkills || { attack: 0, healer: 0, ranged: 0, 'summoner-ranged-stop': false, 'summoner-ranged-flee': false, 'summoner-lockon': false };
                     clientPlayer.mageSkills = serverPlayer.mageSkills || {};
                     clientPlayer.swordDamage = serverPlayer.swordDamage || 0;
                     clientPlayer.canSlow = serverPlayer.canSlow;
@@ -878,11 +881,6 @@ canvas.addEventListener('mousedown', e => {
             const dist = Math.hypot(mouseX - resource.x, mouseY - resource.y);
             if (dist < resource.size && dist < closestDist) { closestDist = dist; closestResource = resource; }
         }
-    }
-    if (me.class === 'summoner') {
-        if (closestPlayer) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'player', targetId: closestPlayer.id }));
-        else if (closestBoar) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'boar', targetId: closestBoar.id }));
-        else if (closestZombie) socket.send(JSON.stringify({ type: 'command-minions', targetType: 'zombie', targetId: closestZombie.id }));
     }
     let didAttack = false;
     if (closestPlayer) {
@@ -1667,7 +1665,16 @@ if (rangeNode) rangeNode.addEventListener('click', () => {
                 }
             }
         } else if (me.class === 'summoner') {
-            socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            const skills = me.summonerSkills || {};
+            if (['summoner-attack', 'summoner-healer', 'summoner-ranged'].includes(skill)) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            } else if (skill === 'summoner-ranged-stop' && skills.ranged > 0 && !skills['summoner-ranged-stop']) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            } else if (skill === 'summoner-ranged-flee' && skills['summoner-ranged-stop'] && !skills['summoner-ranged-flee']) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            } else if (skill === 'summoner-lockon' && !skills['summoner-lockon']) {
+                socket.send(JSON.stringify({ type: 'unlock-skill', skill }));
+            }
         } else if (me.class === 'mage') {
             if (!me.mageSkills || !me.mageSkills[skill]) {
                 const prereq = mageSkillPrereqs[skill];
