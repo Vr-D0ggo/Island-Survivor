@@ -453,9 +453,13 @@ function handleDashDamage(player, angle, playerId) {
         const target = players[id];
         if (!target.active) continue;
         if (getDistance(player, target) < player.size + target.size) {
-            target.hp = Math.max(0, target.hp - dmg);
-            target.x += Math.cos(angle) * knock;
-            target.y += Math.sin(angle) * knock;
+            let tdmg = dmg;
+            let tknock = knock;
+            if (target.class === 'guardian') { tdmg = Math.max(0, tdmg - 1); tknock *= 0.5; }
+            if (target.fortify && target.fortify > 0) { tdmg = Math.max(0, tdmg - 2); tknock *= 0.5; }
+            target.hp = Math.max(0, target.hp - tdmg);
+            target.x += Math.cos(angle) * tknock;
+            target.y += Math.sin(angle) * tknock;
             target.lastHitBy = playerId;
             const c = [...wss.clients].find(cl => cl.id === id);
             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
@@ -520,10 +524,14 @@ function handleWhirlwindDamage(player, playerId) {
         const target = players[id];
         if (!target.active) continue;
         if (getDistance(player, target) < radius) {
-            target.hp = Math.max(0, target.hp - dmg);
+            let tdmg = dmg;
+            let tknock = knock;
+            if (target.class === 'guardian') { tdmg = Math.max(0, tdmg - 1); tknock *= 0.5; }
+            if (target.fortify && target.fortify > 0) { tdmg = Math.max(0, tdmg - 2); tknock *= 0.5; }
+            target.hp = Math.max(0, target.hp - tdmg);
             const angle = Math.atan2(target.y - player.y, target.x - player.x);
-            target.x += Math.cos(angle) * knock;
-            target.y += Math.sin(angle) * knock;
+            target.x += Math.cos(angle) * tknock;
+            target.y += Math.sin(angle) * tknock;
             target.lastHitBy = playerId;
             const c = [...wss.clients].find(cl => cl.id === id);
             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
@@ -815,6 +823,9 @@ wss.on('connection', ws => {
             'summoner-ranged-flee': false,
             'summoner-lockon': false
         },
+        shieldWall: 0,
+        tauntCooldown: 0,
+        fortify: 0,
         mageSkills: {},
         rogueSkills: {},
         canSlow: false,
@@ -893,7 +904,7 @@ wss.on('connection', ws => {
                 }
                 break;
             case 'set-class':
-                if (['knight', 'mage', 'summoner', 'rogue'].includes(data.class)) {
+                if (['knight', 'mage', 'summoner', 'rogue', 'guardian'].includes(data.class)) {
                     player.class = data.class;
                     if (!player.skills) player.skills = {};
                     player.skills.range = true;
@@ -904,6 +915,12 @@ wss.on('connection', ws => {
                         player.mana = 0; player.maxMana = 0; player.manaRegen = 0;
                     } else if (data.class === 'knight') {
                         addItemToPlayer(playerId, 'Stone Sword', 1);
+                        player.mana = 0; player.maxMana = 0; player.manaRegen = 0;
+                    } else if (data.class === 'guardian') {
+                        player.maxHp = 20;
+                        player.hp = 20;
+                        player.baseSpeed = 2.5;
+                        player.speed = 2.5;
                         player.mana = 0; player.maxMana = 0; player.manaRegen = 0;
                     }
                 }
@@ -1099,7 +1116,7 @@ wss.on('connection', ws => {
                         player.skillPoints--;
                         player.skills.range = true;
                         player.attackRange += 20;
-                    } else if (['mage', 'knight', 'summoner', 'rogue'].includes(skill) && player.skills.range && !player.class) {
+                    } else if (['mage', 'knight', 'summoner', 'rogue', 'guardian'].includes(skill) && player.skills.range && !player.class) {
                         player.skillPoints--;
                         player.skills[skill] = true;
                         player.class = skill;
@@ -1308,6 +1325,45 @@ wss.on('connection', ws => {
                     player.whirlwindCooldown = 180;
                     player.whirlwindTime = 20;
                     handleWhirlwindDamage(player, playerId);
+                }
+                break;
+            }
+            case 'guardian-shield-wall': {
+                if (player.class === 'guardian' && (!player.shieldWall || player.shieldWall <= 0)) {
+                    player.shieldWall = 180;
+                }
+                break;
+            }
+            case 'guardian-taunt': {
+                if (player.class === 'guardian' && (!player.tauntCooldown || player.tauntCooldown <= 0)) {
+                    const radius = 200;
+                    for (const b of boars) {
+                        if (getDistance(player, b) < radius) {
+                            b.aggressive = true;
+                            b.target = { type: 'player', id: playerId };
+                            b.giveUpTimer = 600;
+                        }
+                    }
+                    for (const z of zombies) {
+                        if (getDistance(player, z) < radius) {
+                            z.aggressive = true;
+                            z.target = { type: 'player', id: playerId };
+                            z.giveUpTimer = 600;
+                        }
+                    }
+                    for (const o of ogres) {
+                        if (getDistance(player, o) < radius) {
+                            o.aggressive = true;
+                            o.target = { type: 'player', id: playerId };
+                        }
+                    }
+                    player.tauntCooldown = 300;
+                }
+                break;
+            }
+            case 'guardian-fortify': {
+                if (player.class === 'guardian') {
+                    player.fortify = 180;
                 }
                 break;
             }
@@ -1744,7 +1800,10 @@ function gameLoop() {
                         const p = players[id];
                         if (!p.active) continue;
                         if (getDistance(p, proj) < radius) {
-                            p.hp = Math.max(0, p.hp - damage);
+                            let dmg = damage;
+                            if (p.class === 'guardian') dmg = Math.max(0, dmg - 1);
+                            if (p.fortify && p.fortify > 0) dmg = Math.max(0, dmg - 2);
+                            p.hp = Math.max(0, p.hp - dmg);
                             p.lastHitBy = proj.owner || 'ogre';
                             const c = [...wss.clients].find(cl => cl.id === id);
                             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
@@ -1832,13 +1891,17 @@ function gameLoop() {
             if (!p.active) continue;
             if (proj.owner && proj.owner === id) continue;
             if (getDistance(p, proj) < p.size) {
-                if (proj.type === 'slow') {
+                if (p.shieldWall && p.shieldWall > 0) {
+                    hit = true;
+                } else if (proj.type === 'slow') {
                     p.slow = proj.duration || 60;
                 } else if (proj.type === 'bind') {
                     p.bind = 120;
                 } else if (proj.type === 'missile') {
                     if (!p.invulnerable || p.invulnerable <= 0) {
                         let dmg = 4;
+                        if (p.class === 'guardian') dmg = Math.max(0, dmg - 1);
+                        if (p.fortify && p.fortify > 0) dmg = Math.max(0, dmg - 2);
                         p.hp = Math.max(0, p.hp - dmg);
                         p.lastHitBy = proj.owner || 'ogre';
                         const c = [...wss.clients].find(cl => cl.id === id);
@@ -1855,6 +1918,8 @@ function gameLoop() {
                 } else {
                     if (!p.invulnerable || p.invulnerable <= 0) {
                         let dmg = 2;
+                        if (p.class === 'guardian') dmg = Math.max(0, dmg - 1);
+                        if (p.fortify && p.fortify > 0) dmg = Math.max(0, dmg - 2);
                         if (proj.type !== 'arrow' && proj.type !== 'minion') p.burn = 120;
                         p.hp = Math.max(0, p.hp - dmg);
                         p.lastHitBy = proj.owner || 'ogre';
@@ -2078,6 +2143,10 @@ function gameLoop() {
                         if (boar.target.type !== 'player' || target.invulnerable <= 0) {
                             let dmg = boar.damage;
                             if (dayNight.isBloodNight) dmg *= 1.5;
+                            if (boar.target.type === 'player') {
+                                if (target.class === 'guardian') dmg = Math.max(0, dmg - 1);
+                                if (target.fortify && target.fortify > 0) dmg = Math.max(0, dmg - 2);
+                            }
                             target.hp = Math.max(0, target.hp - dmg);
                             if (boar.target.type === 'player') {
                                 target.lastHitBy = 'boar';
@@ -2184,6 +2253,8 @@ function gameLoop() {
                         if (targetPlayer.invulnerable <= 0) {
                             let dmg = zombie.damage;
                             if (dayNight.isBloodNight) dmg *= 1.5;
+                            if (targetPlayer.class === 'guardian') dmg = Math.max(0, dmg - 1);
+                            if (targetPlayer.fortify && targetPlayer.fortify > 0) dmg = Math.max(0, dmg - 2);
                             targetPlayer.hp = Math.max(0, targetPlayer.hp - dmg);
                             targetPlayer.lastHitBy = 'zombie';
                             const c = [...wss.clients].find(cl => cl.id === targetPlayer.id);
@@ -2338,6 +2409,10 @@ function gameLoop() {
                             if (zombie.target.type !== 'player' || target.invulnerable <= 0) {
                                 let dmg = zombie.damage;
                                 if (dayNight.isBloodNight && zombie.target.type === 'player') dmg *= 1.5;
+                                if (zombie.target.type === 'player') {
+                                    if (target.class === 'guardian') dmg = Math.max(0, dmg - 1);
+                                    if (target.fortify && target.fortify > 0) dmg = Math.max(0, dmg - 2);
+                                }
                                 target.hp = Math.max(0, target.hp - dmg);
                                 if (zombie.target.type === 'player') {
                                     target.lastHitBy = 'zombie';
@@ -2409,10 +2484,15 @@ function gameLoop() {
                     if (getDistance(p, ogre) < radius) {
                         const angle = Math.atan2(p.y - ogre.y, p.x - ogre.x);
                         const knock = 50;
-                        p.x += Math.cos(angle) * knock;
-                        p.y += Math.sin(angle) * knock;
+                        let tknock = knock;
                         let dmg = 10;
                         if (dayNight.isBloodNight && !ogre.isBoss) dmg *= 1.5;
+                        if (t.type === 'player') {
+                            if (p.class === 'guardian') { dmg = Math.max(0, dmg - 1); tknock *= 0.5; }
+                            if (p.fortify && p.fortify > 0) { dmg = Math.max(0, dmg - 2); tknock *= 0.5; }
+                        }
+                        p.x += Math.cos(angle) * tknock;
+                        p.y += Math.sin(angle) * tknock;
                         p.hp = Math.max(0, p.hp - dmg);
                         if (t.type === 'player') {
                             p.lastHitBy = 'ogre';
@@ -2524,6 +2604,9 @@ function gameLoop() {
         if (p.dashCooldown && p.dashCooldown > 0) p.dashCooldown--;
         if (p.whirlwindCooldown && p.whirlwindCooldown > 0) p.whirlwindCooldown--;
         if (p.whirlwindTime && p.whirlwindTime > 0) p.whirlwindTime--;
+        if (p.shieldWall && p.shieldWall > 0) p.shieldWall--;
+        if (p.tauntCooldown && p.tauntCooldown > 0) p.tauntCooldown--;
+        if (p.fortify && p.fortify > 0) p.fortify--;
         if (p.dashTime && p.dashTime > 0) {
             p.x = Math.max(0, Math.min(WORLD_WIDTH, p.x + p.dashVX));
             p.y = Math.max(0, Math.min(WORLD_HEIGHT, p.y + p.dashVY));
