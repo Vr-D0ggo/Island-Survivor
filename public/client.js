@@ -34,16 +34,20 @@ let structures = {}; // Start as empty object to prevent crashes
 let boars = [];
 let zombies = [];
 let ogres = [];
+let frostWraiths = [];
 let groundItems = [];
 let projectiles = [];
 let explosions = [];
+let riftBlizzard = { active: false };
 let selectedMageSpell = 'slow';
 let selectedKnightAbility = 'non';
 let selectedRogueAbility = 'bomb';
 let attackCooldown = 0; // no global left-click cooldown
 let camera = { x: 0, y: 0 };
 const OLD_WORLD_WIDTH = 3000;
-const WORLD_WIDTH = OLD_WORLD_WIDTH * 2;
+const WORLD_WIDTH = OLD_WORLD_WIDTH * 3;
+const GLACIAL_RIFT_START_X = OLD_WORLD_WIDTH * 2;
+const GLACIAL_RIFT_END_X = WORLD_WIDTH;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50;
 let dayNight = { isDay: true, cycleTime: 0, DAY_DURATION: 5 * 60 * 1000, NIGHT_DURATION: 3.5 * 60 * 1000 };
@@ -496,6 +500,7 @@ function getMouseTarget() {
     for (const boar of boars) check(boar, 'boar', boar.id);
     for (const zombie of zombies) check(zombie, 'zombie', zombie.id);
     for (const ogre of ogres) check(ogre, 'ogre', ogre.id);
+    for (const w of frostWraiths) check(w, 'wraith', w.id);
     return target;
 }
 
@@ -541,9 +546,11 @@ socket.onmessage = event => {
             boars = data.boars || [];
             zombies = data.zombies || [];
             ogres = data.ogres || [];
+            frostWraiths = data.frostWraiths || [];
             groundItems = data.groundItems || [];
             projectiles = data.projectiles || [];
             dayNight = data.dayNight || dayNight;
+            riftBlizzard = data.riftBlizzard || riftBlizzard;
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
             updatePlayerHealthBar();
@@ -558,6 +565,8 @@ socket.onmessage = event => {
             boars = data.boars || boars;
             zombies = data.zombies || zombies;
             ogres = data.ogres || ogres;
+            frostWraiths = data.frostWraiths || frostWraiths;
+            riftBlizzard = data.riftBlizzard || riftBlizzard;
             groundItems = data.groundItems || groundItems;
             projectiles = data.projectiles || projectiles;
             for (const id in data.players) {
@@ -641,6 +650,11 @@ socket.onmessage = event => {
         case 'ogre-update': {
             const idx = ogres.findIndex(o => o.id === data.ogre.id);
             if (idx !== -1) ogres[idx] = data.ogre; else ogres.push(data.ogre);
+            break;
+        }
+        case 'wraith-update': {
+            const idx = frostWraiths.findIndex(w => w.id === data.wraith.id);
+            if (idx !== -1) frostWraiths[idx] = data.wraith; else frostWraiths.push(data.wraith);
             break;
         }
         case 'bomb-explode':
@@ -877,6 +891,11 @@ canvas.addEventListener('mousedown', e => {
         const dist = Math.hypot(mouseX - ogre.x, mouseY - ogre.y);
         if (dist < ogre.size && dist < ogreDist) { ogreDist = dist; closestOgre = ogre; }
     }
+    let closestWraith = null; let wraithDist = Infinity;
+    for (const w of frostWraiths) {
+        const dist = Math.hypot(mouseX - w.x, mouseY - w.y);
+        if (dist < w.size && dist < wraithDist) { wraithDist = dist; closestWraith = w; }
+    }
     let closestResource = null; let closestDist = Infinity;
     for (const resource of resources) {
         if (!resource.harvested) {
@@ -897,6 +916,9 @@ canvas.addEventListener('mousedown', e => {
     } else if (closestOgre) {
         socket.send(JSON.stringify({ type: 'hit-ogre', ogreId: closestOgre.id, item: selectedItem ? selectedItem.item : null }));
         didAttack = true;
+    } else if (closestWraith) {
+        socket.send(JSON.stringify({ type: 'hit-wraith', wraithId: closestWraith.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
     } else if (closestResource) {
         socket.send(JSON.stringify({ type: 'hit-resource', resourceId: closestResource.id, item: selectedItem ? selectedItem.item : null }));
         didAttack = true;
@@ -910,6 +932,7 @@ canvas.addEventListener('mousedown', e => {
             const gridX = Math.floor(mouseX / GRID_CELL_SIZE);
             const gridY = Math.floor(mouseY / GRID_CELL_SIZE);
             if (structures[`w${gridX},${gridY}`]) key = `w${gridX},${gridY}`;
+            else if (structures[`i${gridX},${gridY}`]) key = `i${gridX},${gridY}`;
         }
         if (key) socket.send(JSON.stringify({ type: 'hit-structure', key, item: selectedItem ? selectedItem.item : null, hotbarIndex: selectedHotbarSlot }));
     }
@@ -1235,6 +1258,20 @@ function drawOgre(ogre) {
     }
 }
 
+function drawFrostWraith(wraith) {
+    drawShadow(wraith.x, wraith.y, wraith.size * 2, wraith.size);
+    ctx.fillStyle = 'rgba(180,220,255,0.8)';
+    ctx.beginPath();
+    ctx.arc(wraith.x, wraith.y, wraith.size, 0, Math.PI * 2);
+    ctx.fill();
+    if (wraith.hp < wraith.maxHp) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(wraith.x - wraith.size, wraith.y - wraith.size - 10, wraith.size * 2, 6);
+        ctx.fillStyle = 'blue';
+        ctx.fillRect(wraith.x - wraith.size, wraith.y - wraith.size - 10, (wraith.hp / wraith.maxHp) * wraith.size * 2, 6);
+    }
+}
+
 function drawProjectile(p) {
     drawShadow(p.x, p.y, 16, 8);
     if (p.type === 'slow') {
@@ -1320,6 +1357,11 @@ function drawStructure(structure) {
         ctx.fillRect(structure.x, structure.y, size, size);
         ctx.strokeStyle = '#333';
         ctx.strokeRect(structure.x, structure.y, size, size);
+    } else if (structure.type === 'ice_wall') {
+        ctx.fillStyle = '#aeeaff';
+        ctx.fillRect(structure.x, structure.y, size, size);
+        ctx.strokeStyle = '#333';
+        ctx.strokeRect(structure.x, structure.y, size, size);
     } else if (structure.type === 'workbench') {
         ctx.drawImage(workbenchImg, structure.x, structure.y, size, size);
     } else if (structure.type === 'furnace') {
@@ -1363,6 +1405,8 @@ function render() {
     ctx.fillRect(0, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
     ctx.fillStyle = '#8cc68c';
     ctx.fillRect(OLD_WORLD_WIDTH, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
+    ctx.fillStyle = '#d0f0ff';
+    ctx.fillRect(GLACIAL_RIFT_START_X, 0, OLD_WORLD_WIDTH, WORLD_HEIGHT);
     ctx.strokeStyle = 'rgba(0,0,0,0.1)';
     ctx.lineWidth = 1;
     for (let x = 0; x <= WORLD_WIDTH; x += GRID_CELL_SIZE) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke(); }
@@ -1371,6 +1415,7 @@ function render() {
     groundItems.forEach(drawGroundItem);
     boars.forEach(drawBoar);
     ogres.forEach(drawOgre);
+    frostWraiths.forEach(drawFrostWraith);
     projectiles.forEach(drawProjectile);
     explosions.forEach(ex => {
         const alpha = ex.timer / 30;
@@ -1385,7 +1430,12 @@ function render() {
     Object.values(structures).forEach(drawStructure);
     Object.values(players).forEach(p => drawPlayer(p, p.id === myPlayerId));
     ctx.restore();
-
+    const playerMe = players[myPlayerId];
+    const inRift = playerMe && playerMe.x >= GLACIAL_RIFT_START_X;
+    if (riftBlizzard.active && inRift) {
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.fillStyle = `rgba(0, 0, 50, ${darkness})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (darkness > 0) {

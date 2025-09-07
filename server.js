@@ -16,7 +16,9 @@ app.use(express.static('public'));
 // keeps the regular grass while the new half has lighter grass and sparse
 // resources.
 const OLD_WORLD_WIDTH = 3000;
-const WORLD_WIDTH = OLD_WORLD_WIDTH * 2;
+const WORLD_WIDTH = OLD_WORLD_WIDTH * 3;
+const GLACIAL_RIFT_START_X = OLD_WORLD_WIDTH * 2;
+const GLACIAL_RIFT_END_X = WORLD_WIDTH;
 const WORLD_HEIGHT = 3000;
 const GRID_CELL_SIZE = 50;
 const BLOCK_SUBDIVISIONS = 2;
@@ -49,6 +51,8 @@ let zombies = [];
 let nextZombieId = 0;
 let ogres = [];
 let nextOgreId = 0;
+let frostWraiths = [];
+let nextFrostWraithId = 0;
 let groundItems = [];
 let nextItemId = 0;
 let projectiles = [];
@@ -67,6 +71,9 @@ let dayNight = {
     dayCount: 1,
     isBloodNight: false
 };
+const BLIZZARD_INTERVAL = 60 * 1000;
+const BLIZZARD_DURATION = 15 * 1000;
+let riftBlizzard = { active: false, timer: BLIZZARD_INTERVAL };
 
 // --- World Generation ---
 function isAreaFree(gridX, gridY, size) { for (let x = gridX; x < gridX + size; x++) { for (let y = gridY; y < gridY + size; y++) { if (x < 0 || x >= grid.length || y < 0 || y >= grid[0].length || grid[x][y]) return false; } } return true; }
@@ -118,8 +125,11 @@ function generateWorld() {
     placeResource('tree', 150, [2, 3], 0, OLD_WORLD_WIDTH);
     placeResource('rock', 90, [1, 2, 3], 0, OLD_WORLD_WIDTH);
     // Sparse resources in the new lighter area
-    placeResource('tree', 30, [2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
-    placeResource('rock', 15, [1, 2, 3], OLD_WORLD_WIDTH, WORLD_WIDTH);
+    placeResource('tree', 30, [2, 3], OLD_WORLD_WIDTH, GLACIAL_RIFT_START_X);
+    placeResource('rock', 15, [1, 2, 3], OLD_WORLD_WIDTH, GLACIAL_RIFT_START_X);
+    // Minimal rocks in the Glacial Rift
+    placeResource('rock', 10, [1, 2], GLACIAL_RIFT_START_X, WORLD_WIDTH);
+    generateGlacialRift();
     // Transform rocks in the plains into passive rock monsters
     resources = resources.filter(r => {
         if (r.type === 'rock' && r.x >= OLD_WORLD_WIDTH) {
@@ -146,6 +156,7 @@ function generateWorld() {
     spawnBoars(10);
     spawnZombies(5);
     spawnOgres(1);
+    spawnFrostWraiths(5);
 
     // Spawn the forest boss: the Big Zombie.
     let bossPos;
@@ -215,6 +226,54 @@ function spawnBoars(count) {
     for (let i = 0; i < count; i++) {
         const { x, y } = getFreePosition();
         boars.push(createBoar(x, y));
+    }
+}
+
+function getFreeRiftPosition() {
+    let pos;
+    do {
+        const x = GLACIAL_RIFT_START_X + Math.random() * (GLACIAL_RIFT_END_X - GLACIAL_RIFT_START_X);
+        const y = Math.random() * WORLD_HEIGHT;
+        pos = { x, y };
+    } while (isBlocked(pos.x, pos.y, 20));
+    return pos;
+}
+
+function createFrostWraith(x, y) {
+    return {
+        id: nextFrostWraithId++,
+        x,
+        y,
+        hp: 15,
+        maxHp: 15,
+        size: 15,
+        baseSpeed: 1.5,
+        speed: 1.5,
+        vx: 0,
+        vy: 0,
+        slow: 0,
+        bind: 0
+    };
+}
+
+function spawnFrostWraiths(count) {
+    for (let i = 0; i < count; i++) {
+        const { x, y } = getFreeRiftPosition();
+        frostWraiths.push(createFrostWraith(x, y));
+    }
+}
+
+function generateGlacialRift() {
+    for (let x = GLACIAL_RIFT_START_X; x < GLACIAL_RIFT_END_X; x += GRID_CELL_SIZE) {
+        for (let y = 0; y < WORLD_HEIGHT; y += GRID_CELL_SIZE) {
+            if (Math.random() < 0.15) {
+                const gridX = Math.floor(x / GRID_CELL_SIZE);
+                const gridY = Math.floor(y / GRID_CELL_SIZE);
+                const key = `i${gridX},${gridY}`;
+                structures[key] = { type: 'ice_wall', x: gridX * GRID_CELL_SIZE, y: gridY * GRID_CELL_SIZE, size: GRID_CELL_SIZE };
+                markArea(gridX, gridY, 1, true);
+            }
+        }
     }
 }
 
@@ -356,6 +415,7 @@ function findNearestTarget(src) {
     for (const boar of boars) consider(boar, 'boar', boar.id);
     for (const zombie of zombies) consider(zombie, 'zombie', zombie.id);
     for (const ogre of ogres) consider(ogre, 'ogre', ogre.id);
+    for (const wraith of frostWraiths) consider(wraith, 'wraith', wraith.id);
     return nearest;
 }
 // Count a player's items using an exact name match so crafted items
@@ -441,6 +501,14 @@ function handleDashDamage(player, angle, playerId) {
             }
         }
     }
+    for (const wraith of frostWraiths) {
+        if (getDistance(player, wraith) < player.size + wraith.size) {
+            wraith.hp = Math.max(0, wraith.hp - dmg);
+            wraith.x += Math.cos(angle) * knock;
+            wraith.y += Math.sin(angle) * knock;
+            broadcast({ type: 'wraith-update', wraith });
+        }
+    }
 }
 
 function handleWhirlwindDamage(player, playerId) {
@@ -479,14 +547,16 @@ function handleWhirlwindDamage(player, playerId) {
                     obj.aggressive = true;
                     obj.target = { type: 'player', id: playerId };
                 }
-                const updateType = type === 'boar' ? 'boar-update' : type === 'zombie' ? 'zombie-update' : 'ogre-update';
-                broadcast({ type: updateType, [type === 'boar' ? 'boar' : type === 'zombie' ? 'zombie' : 'ogre']: obj });
+                const updateType = type === 'boar' ? 'boar-update' : type === 'zombie' ? 'zombie-update' : type === 'ogre' ? 'ogre-update' : 'wraith-update';
+                const payloadKey = type === 'boar' ? 'boar' : type === 'zombie' ? 'zombie' : type === 'ogre' ? 'ogre' : 'wraith';
+                broadcast({ type: updateType, [payloadKey]: obj });
             }
         }
     };
     process(boars, 'boar');
     process(zombies, 'zombie');
     process(ogres, 'ogre');
+    process(frostWraiths, 'wraith');
 }
 function sendLevelUpdate(ws, player) {
     if (ws) ws.send(JSON.stringify({ type: 'level-update', level: player.level, skillPoints: player.skillPoints }));
@@ -536,6 +606,12 @@ function getDamage(item, target) {
         if (name === 'tusk') return 6;
         if (name === 'mace') return 7;
         if (name.includes('axe') || name.includes('pickaxe')) return 2;
+    } else if (target === 'wraith') {
+        if (name === 'wooden sword') return 3;
+        if (name === 'stone sword') return 5;
+        if (name === 'tusk') return 6;
+        if (name === 'mace') return 6;
+        if (name.includes('axe') || name.includes('pickaxe')) return 1;
     }
     return 1;
 }
@@ -619,6 +695,19 @@ function moveToward(entity, target) {
     }
     entity.vx = 0;
     entity.vy = 0;
+}
+
+function moveTowardNoClip(entity, target) {
+    const dx = target.x - entity.x;
+    const dy = target.y - entity.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) {
+        entity.vx = 0;
+        entity.vy = 0;
+        return;
+    }
+    entity.vx = (dx / dist) * entity.speed;
+    entity.vy = (dy / dist) * entity.speed;
 }
 
 function moveAway(entity, target) {
@@ -753,7 +842,7 @@ wss.on('connection', ws => {
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
-        type: 'init', playerId, players: getActivePlayers(), myPlayerData: newPlayer, resources, structures, boars, zombies, ogres, groundItems, projectiles, dayNight
+        type: 'init', playerId, players: getActivePlayers(), myPlayerData: newPlayer, resources, structures, boars, zombies, ogres, frostWraiths, groundItems, projectiles, dayNight, riftBlizzard
     }));
 
     players[playerId] = newPlayer;
@@ -971,6 +1060,22 @@ wss.on('connection', ws => {
                         levelUp(player, ws);
                     }
                     broadcast({ type: 'ogre-update', ogre });
+                }
+                break;
+            }
+            case 'hit-wraith': {
+                const wraith = frostWraiths.find(w => w.id === data.wraithId);
+                if (wraith && getDistance(player, wraith) < player.size + wraith.size + 20 + (player.attackRange || 0)) {
+                    let dmg = getDamage(data.item, 'wraith');
+                    if (player.class === 'knight' && data.item && data.item.toLowerCase().includes('sword')) {
+                        dmg += player.swordDamage || 0;
+                    }
+                    wraith.hp -= dmg;
+                    if (wraith.hp <= 0) {
+                        frostWraiths = frostWraiths.filter(w => w.id !== wraith.id);
+                        levelUp(player, ws);
+                    }
+                    broadcast({ type: 'wraith-update', wraith });
                 }
                 break;
             }
@@ -1310,7 +1415,7 @@ wss.on('connection', ws => {
                 if (!structure) break;
                 const center = { x: structure.x + structure.size / 2, y: structure.y + structure.size / 2 };
                 if (getDistance(player, center) < player.size + structure.size) {
-                    if (structure.type === 'wood_wall' || structure.type === 'stone_wall' || structure.type === 'furnace') {
+                    if (structure.type === 'wood_wall' || structure.type === 'stone_wall' || structure.type === 'ice_wall' || structure.type === 'furnace') {
                         const itemDrop = structure.type === 'wood_wall' ? 'Wood' : 'Stone';
                         addItemToPlayer(playerId, itemDrop, 1);
                     }
@@ -1511,6 +1616,15 @@ function gameLoop() {
         }
     }
 
+    if (frostWraiths.length < 6) {
+        spawnFrostWraiths(2);
+    }
+    riftBlizzard.timer -= 1000 / 60;
+    if (riftBlizzard.timer <= 0) {
+        riftBlizzard.active = !riftBlizzard.active;
+        riftBlizzard.timer = riftBlizzard.active ? BLIZZARD_DURATION : BLIZZARD_INTERVAL;
+    }
+
     for (const proj of projectiles) {
         if (proj.type === 'bomb' || proj.type === 'smoke' || proj.type === 'flame') {
             proj.timer--;
@@ -1549,7 +1663,7 @@ function gameLoop() {
                     const p = players[id];
                     if (p.active) entities.push(p);
                 }
-                entities.push(...boars, ...zombies, ...ogres);
+                entities.push(...boars, ...zombies, ...ogres, ...frostWraiths);
                 for (const e of entities) {
                     if (getDistance(e, proj) < e.size) {
                         if (proj.sticky) {
@@ -1585,7 +1699,7 @@ function gameLoop() {
                 }
                 for (const key in structures) {
                     const s = structures[key];
-                    if (s.type === 'wood_wall' || s.type === 'stone_wall') {
+                    if (s.type === 'wood_wall' || s.type === 'stone_wall' || s.type === 'ice_wall') {
                         if (
                             proj.x >= s.x &&
                             proj.x <= s.x + s.size &&
@@ -1846,6 +1960,27 @@ function gameLoop() {
             }
         }
         if (!hit) {
+            for (const wraith of frostWraiths) {
+                if (getDistance(wraith, proj) < wraith.size) {
+                    if (proj.type === 'slow') {
+                        wraith.slow = proj.duration || 60;
+                    } else if (proj.type === 'bind') {
+                        wraith.bind = 120;
+                    } else if (proj.type === 'missile') {
+                        let dmg = 4;
+                        wraith.hp = Math.max(0, wraith.hp - dmg);
+                        broadcast({ type: 'wraith-update', wraith });
+                    } else {
+                        let dmg = 2;
+                        wraith.hp = Math.max(0, wraith.hp - dmg);
+                        broadcast({ type: 'wraith-update', wraith });
+                    }
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if (!hit) {
             for (const r of resources) {
                 if (r.harvested) continue;
                 if (getDistance(r, proj) < r.size / 2) {
@@ -1865,7 +2000,7 @@ function gameLoop() {
         if (!hit) {
             for (const key in structures) {
                 const s = structures[key];
-                if (s.type === 'wood_wall' || s.type === 'stone_wall') {
+                if (s.type === 'wood_wall' || s.type === 'stone_wall' || s.type === 'ice_wall') {
                     if (proj.x >= s.x && proj.x <= s.x + s.size && proj.y >= s.y && proj.y <= s.y + s.size) {
                         delete structures[key];
                         if (key.startsWith('b')) {
@@ -2350,6 +2485,27 @@ function gameLoop() {
         ogre.x = Math.max(0, Math.min(WORLD_WIDTH, ogre.x));
         ogre.y = Math.max(0, Math.min(WORLD_HEIGHT, ogre.y));
     }
+    for (const wraith of frostWraiths) {
+        if (wraith.bind > 0) { wraith.bind--; wraith.speed = 0; }
+        else if (wraith.slow > 0) { wraith.slow--; wraith.speed = wraith.baseSpeed * 0.5; }
+        else wraith.speed = wraith.baseSpeed;
+        const target = getNearestPlayer(wraith);
+        if (target) {
+            moveTowardNoClip(wraith, target);
+            const dist = getDistance(wraith, target);
+            if (dist < wraith.size + target.size) {
+                if (target.slow > 0) target.bind = 120;
+                else target.slow = 60;
+                target.lastHitBy = 'wraith';
+            }
+        } else {
+            wraith.vx = 0;
+            wraith.vy = 0;
+        }
+        wraith.x = Math.max(GLACIAL_RIFT_START_X, Math.min(GLACIAL_RIFT_END_X, wraith.x + wraith.vx));
+        wraith.y = Math.max(0, Math.min(WORLD_HEIGHT, wraith.y + wraith.vy));
+    }
+    frostWraiths = frostWraiths.filter(w => w.hp > 0);
     for (const id in players) {
         const p = players[id];
         if (!p.active) continue;
@@ -2424,9 +2580,11 @@ function gameLoop() {
         boars,
         zombies,
         ogres,
+        frostWraiths,
         groundItems,
         projectiles: projectiles.map(p => ({ ...p, stuckTo: undefined })),
-        dayNight
+        dayNight,
+        riftBlizzard
     });
 }
 generateWorld();
