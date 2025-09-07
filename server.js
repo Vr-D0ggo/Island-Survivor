@@ -53,6 +53,10 @@ let ogres = [];
 let nextOgreId = 0;
 let frostWraiths = [];
 let nextFrostWraithId = 0;
+let iceMaulers = [];
+let nextIceMaulerId = 0;
+let cryoShamans = [];
+let nextCryoShamanId = 0;
 let groundItems = [];
 let nextItemId = 0;
 let projectiles = [];
@@ -157,6 +161,8 @@ function generateWorld() {
     spawnZombies(5);
     spawnOgres(1);
     spawnFrostWraiths(5);
+    spawnIceMaulers(3);
+    spawnCryoShamans(2);
 
     // Spawn the forest boss: the Big Zombie.
     let bossPos;
@@ -260,6 +266,57 @@ function spawnFrostWraiths(count) {
     for (let i = 0; i < count; i++) {
         const { x, y } = getFreeRiftPosition();
         frostWraiths.push(createFrostWraith(x, y));
+    }
+}
+
+function createIceMauler(x, y) {
+    return {
+        id: nextIceMaulerId++,
+        x,
+        y,
+        hp: 80,
+        maxHp: 80,
+        size: 30,
+        baseSpeed: 1,
+        speed: 1,
+        vx: 0,
+        vy: 0,
+        cooldown: 0,
+        slow: 0,
+        bind: 0
+    };
+}
+
+function spawnIceMaulers(count) {
+    for (let i = 0; i < count; i++) {
+        const { x, y } = getFreeRiftPosition();
+        iceMaulers.push(createIceMauler(x, y));
+    }
+}
+
+function createCryoShaman(x, y) {
+    return {
+        id: nextCryoShamanId++,
+        x,
+        y,
+        hp: 60,
+        maxHp: 60,
+        size: 25,
+        baseSpeed: 0.4,
+        speed: 0.4,
+        vx: 0,
+        vy: 0,
+        slow: 0,
+        bind: 0,
+        healCooldown: 0,
+        pillarCooldown: 0
+    };
+}
+
+function spawnCryoShamans(count) {
+    for (let i = 0; i < count; i++) {
+        const { x, y } = getFreeRiftPosition();
+        cryoShamans.push(createCryoShaman(x, y));
     }
 }
 
@@ -416,6 +473,8 @@ function findNearestTarget(src) {
     for (const zombie of zombies) consider(zombie, 'zombie', zombie.id);
     for (const ogre of ogres) consider(ogre, 'ogre', ogre.id);
     for (const wraith of frostWraiths) consider(wraith, 'wraith', wraith.id);
+    for (const mauler of iceMaulers) consider(mauler, 'mauler', mauler.id);
+    for (const shaman of cryoShamans) consider(shaman, 'shaman', shaman.id);
     return nearest;
 }
 // Count a player's items using an exact name match so crafted items
@@ -513,6 +572,22 @@ function handleDashDamage(player, angle, playerId) {
             broadcast({ type: 'wraith-update', wraith });
         }
     }
+    for (const mauler of iceMaulers) {
+        if (getDistance(player, mauler) < player.size + mauler.size) {
+            mauler.hp = Math.max(0, mauler.hp - dmg);
+            mauler.x += Math.cos(angle) * knock;
+            mauler.y += Math.sin(angle) * knock;
+            broadcast({ type: 'mauler-update', mauler });
+        }
+    }
+    for (const shaman of cryoShamans) {
+        if (getDistance(player, shaman) < player.size + shaman.size) {
+            shaman.hp = Math.max(0, shaman.hp - dmg);
+            shaman.x += Math.cos(angle) * knock;
+            shaman.y += Math.sin(angle) * knock;
+            broadcast({ type: 'shaman-update', shaman });
+        }
+    }
 }
 
 function handleWhirlwindDamage(player, playerId) {
@@ -555,8 +630,30 @@ function handleWhirlwindDamage(player, playerId) {
                     obj.aggressive = true;
                     obj.target = { type: 'player', id: playerId };
                 }
-                const updateType = type === 'boar' ? 'boar-update' : type === 'zombie' ? 'zombie-update' : type === 'ogre' ? 'ogre-update' : 'wraith-update';
-                const payloadKey = type === 'boar' ? 'boar' : type === 'zombie' ? 'zombie' : type === 'ogre' ? 'ogre' : 'wraith';
+                const updateType =
+                    type === 'boar'
+                        ? 'boar-update'
+                        : type === 'zombie'
+                        ? 'zombie-update'
+                        : type === 'ogre'
+                        ? 'ogre-update'
+                        : type === 'wraith'
+                        ? 'wraith-update'
+                        : type === 'mauler'
+                        ? 'mauler-update'
+                        : 'shaman-update';
+                const payloadKey =
+                    type === 'boar'
+                        ? 'boar'
+                        : type === 'zombie'
+                        ? 'zombie'
+                        : type === 'ogre'
+                        ? 'ogre'
+                        : type === 'wraith'
+                        ? 'wraith'
+                        : type === 'mauler'
+                        ? 'mauler'
+                        : 'shaman';
                 broadcast({ type: updateType, [payloadKey]: obj });
             }
         }
@@ -565,6 +662,8 @@ function handleWhirlwindDamage(player, playerId) {
     process(zombies, 'zombie');
     process(ogres, 'ogre');
     process(frostWraiths, 'wraith');
+    process(iceMaulers, 'mauler');
+    process(cryoShamans, 'shaman');
 }
 function sendLevelUpdate(ws, player) {
     if (ws) ws.send(JSON.stringify({ type: 'level-update', level: player.level, skillPoints: player.skillPoints }));
@@ -618,6 +717,18 @@ function getDamage(item, target) {
         if (name === 'wooden sword') return 3;
         if (name === 'stone sword') return 5;
         if (name === 'tusk') return 6;
+        if (name === 'mace') return 6;
+        if (name.includes('axe') || name.includes('pickaxe')) return 1;
+    } else if (target === 'mauler') {
+        if (name === 'wooden sword') return 3;
+        if (name === 'stone sword') return 5;
+        if (name === 'tusk') return 6;
+        if (name === 'mace') return 7;
+        if (name.includes('axe') || name.includes('pickaxe')) return 2;
+    } else if (target === 'shaman') {
+        if (name === 'wooden sword') return 2;
+        if (name === 'stone sword') return 4;
+        if (name === 'tusk') return 5;
         if (name === 'mace') return 6;
         if (name.includes('axe') || name.includes('pickaxe')) return 1;
     }
@@ -853,7 +964,22 @@ wss.on('connection', ws => {
     
     // This init message is CRITICAL. It MUST contain 'myPlayerData'.
     ws.send(JSON.stringify({
-        type: 'init', playerId, players: getActivePlayers(), myPlayerData: newPlayer, resources, structures, boars, zombies, ogres, frostWraiths, groundItems, projectiles, dayNight, riftBlizzard
+        type: 'init',
+        playerId,
+        players: getActivePlayers(),
+        myPlayerData: newPlayer,
+        resources,
+        structures,
+        boars,
+        zombies,
+        ogres,
+        frostWraiths,
+        iceMaulers,
+        cryoShamans,
+        groundItems,
+        projectiles,
+        dayNight,
+        riftBlizzard
     }));
 
     players[playerId] = newPlayer;
@@ -1093,6 +1219,38 @@ wss.on('connection', ws => {
                         levelUp(player, ws);
                     }
                     broadcast({ type: 'wraith-update', wraith });
+                }
+                break;
+            }
+            case 'hit-mauler': {
+                const mauler = iceMaulers.find(m => m.id === data.maulerId);
+                if (mauler && getDistance(player, mauler) < player.size + mauler.size + 20 + (player.attackRange || 0)) {
+                    let dmg = getDamage(data.item, 'mauler');
+                    if (player.class === 'knight' && data.item && data.item.toLowerCase().includes('sword')) {
+                        dmg += player.swordDamage || 0;
+                    }
+                    mauler.hp -= dmg;
+                    if (mauler.hp <= 0) {
+                        iceMaulers = iceMaulers.filter(m => m.id !== mauler.id);
+                        levelUp(player, ws);
+                    }
+                    broadcast({ type: 'mauler-update', mauler });
+                }
+                break;
+            }
+            case 'hit-shaman': {
+                const shaman = cryoShamans.find(s => s.id === data.shamanId);
+                if (shaman && getDistance(player, shaman) < player.size + shaman.size + 20 + (player.attackRange || 0)) {
+                    let dmg = getDamage(data.item, 'shaman');
+                    if (player.class === 'knight' && data.item && data.item.toLowerCase().includes('sword')) {
+                        dmg += player.swordDamage || 0;
+                    }
+                    shaman.hp -= dmg;
+                    if (shaman.hp <= 0) {
+                        cryoShamans = cryoShamans.filter(s => s.id !== shaman.id);
+                        levelUp(player, ws);
+                    }
+                    broadcast({ type: 'shaman-update', shaman });
                 }
                 break;
             }
@@ -1675,6 +1833,12 @@ function gameLoop() {
     if (frostWraiths.length < 6) {
         spawnFrostWraiths(2);
     }
+    if (iceMaulers.length < 4) {
+        spawnIceMaulers(1);
+    }
+    if (cryoShamans.length < 3) {
+        spawnCryoShamans(1);
+    }
     riftBlizzard.timer -= 1000 / 60;
     if (riftBlizzard.timer <= 0) {
         riftBlizzard.active = !riftBlizzard.active;
@@ -1719,7 +1883,7 @@ function gameLoop() {
                     const p = players[id];
                     if (p.active) entities.push(p);
                 }
-                entities.push(...boars, ...zombies, ...ogres, ...frostWraiths);
+                entities.push(...boars, ...zombies, ...ogres, ...frostWraiths, ...iceMaulers, ...cryoShamans);
                 for (const e of entities) {
                     if (getDistance(e, proj) < e.size) {
                         if (proj.sticky) {
@@ -1851,6 +2015,9 @@ function gameLoop() {
                 else if (proj.targetType === 'boar') target = boars.find(b => b.id === proj.targetId);
                 else if (proj.targetType === 'zombie') target = zombies.find(z => z.id === proj.targetId);
                 else if (proj.targetType === 'ogre') target = ogres.find(o => o.id === proj.targetId);
+                else if (proj.targetType === 'wraith') target = frostWraiths.find(w => w.id === proj.targetId);
+                else if (proj.targetType === 'mauler') target = iceMaulers.find(m => m.id === proj.targetId);
+                else if (proj.targetType === 'shaman') target = cryoShamans.find(s => s.id === proj.targetId);
                 if (target) {
                     const angle = Math.atan2(target.y - proj.y, target.x - proj.x);
                     const speed = 0.5;
@@ -2039,6 +2206,54 @@ function gameLoop() {
                         let dmg = 2;
                         wraith.hp = Math.max(0, wraith.hp - dmg);
                         broadcast({ type: 'wraith-update', wraith });
+                    }
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if (!hit) {
+            for (const mauler of iceMaulers) {
+                if (getDistance(mauler, proj) < mauler.size) {
+                    if (proj.type === 'slow') {
+                        mauler.slow = proj.duration || 60;
+                    } else if (proj.type === 'bind') {
+                        mauler.bind = 120;
+                    } else if (proj.type === 'missile') {
+                        let dmg = 4;
+                        mauler.hp = Math.max(0, mauler.hp - dmg);
+                        broadcast({ type: 'mauler-update', mauler });
+                    } else {
+                        let dmg = 2;
+                        mauler.hp = Math.max(0, mauler.hp - dmg);
+                        broadcast({ type: 'mauler-update', mauler });
+                    }
+                    if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(proj.owner, 'mauler', mauler.id);
+                    }
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if (!hit) {
+            for (const shaman of cryoShamans) {
+                if (getDistance(shaman, proj) < shaman.size) {
+                    if (proj.type === 'slow') {
+                        shaman.slow = proj.duration || 60;
+                    } else if (proj.type === 'bind') {
+                        shaman.bind = 120;
+                    } else if (proj.type === 'missile') {
+                        let dmg = 4;
+                        shaman.hp = Math.max(0, shaman.hp - dmg);
+                        broadcast({ type: 'shaman-update', shaman });
+                    } else {
+                        let dmg = 2;
+                        shaman.hp = Math.max(0, shaman.hp - dmg);
+                        broadcast({ type: 'shaman-update', shaman });
+                    }
+                    if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
+                        commandPlayerMinions(proj.owner, 'shaman', shaman.id);
                     }
                     hit = true;
                     break;
@@ -2586,6 +2801,73 @@ function gameLoop() {
         wraith.y = Math.max(0, Math.min(WORLD_HEIGHT, wraith.y + wraith.vy));
     }
     frostWraiths = frostWraiths.filter(w => w.hp > 0);
+    for (const mauler of iceMaulers) {
+        if (mauler.bind > 0) { mauler.bind--; mauler.speed = 0; }
+        else if (mauler.slow > 0) { mauler.slow--; mauler.speed = mauler.baseSpeed * 0.5; }
+        else mauler.speed = mauler.baseSpeed;
+        if (mauler.cooldown > 0) mauler.cooldown--;
+        const target = getNearestPlayer(mauler);
+        if (target) {
+            moveToward(mauler, target);
+            const dist = getDistance(mauler, target);
+            if (dist < mauler.size + target.size && mauler.cooldown <= 0) {
+                let dmg = 4;
+                target.hp = Math.max(0, target.hp - dmg);
+                target.bind = 60;
+                target.fortify = 0;
+                target.lastHitBy = 'mauler';
+                const c = [...wss.clients].find(cl => cl.id === target.id);
+                if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
+                mauler.cooldown = 90;
+            }
+        } else {
+            mauler.vx = 0;
+            mauler.vy = 0;
+        }
+        mauler.x = Math.max(GLACIAL_RIFT_START_X, Math.min(GLACIAL_RIFT_END_X, mauler.x + mauler.vx));
+        mauler.y = Math.max(0, Math.min(WORLD_HEIGHT, mauler.y + mauler.vy));
+    }
+    iceMaulers = iceMaulers.filter(m => m.hp > 0);
+    for (const shaman of cryoShamans) {
+        if (shaman.bind > 0) { shaman.bind--; shaman.speed = 0; }
+        else if (shaman.slow > 0) { shaman.slow--; shaman.speed = shaman.baseSpeed * 0.5; }
+        else shaman.speed = shaman.baseSpeed;
+        if (shaman.healCooldown > 0) shaman.healCooldown--;
+        if (shaman.pillarCooldown > 0) shaman.pillarCooldown--;
+        if (shaman.healCooldown <= 0) {
+            const allies = [...boars, ...zombies, ...ogres, ...frostWraiths, ...iceMaulers, ...cryoShamans];
+            for (const ally of allies) {
+                if (getDistance(ally, shaman) < 150) ally.hp = Math.min(ally.maxHp, ally.hp + 1);
+            }
+            shaman.healCooldown = 300;
+        }
+        if (shaman.pillarCooldown <= 0) {
+            const gridX = Math.floor(shaman.x / GRID_CELL_SIZE);
+            const gridY = Math.floor(shaman.y / GRID_CELL_SIZE);
+            const key = `i${gridX},${gridY}`;
+            if (!structures[key]) {
+                structures[key] = { type: 'ice_pillar', x: gridX * GRID_CELL_SIZE, y: gridY * GRID_CELL_SIZE, size: GRID_CELL_SIZE };
+                markArea(gridX, gridY, 1, true);
+                broadcast({ type: 'structure-update', structure: structures[key] });
+            }
+            shaman.pillarCooldown = 600;
+        }
+        if (shaman.vx === 0 && shaman.vy === 0) {
+            const ang = Math.random() * Math.PI * 2;
+            shaman.vx = Math.cos(ang) * shaman.speed;
+            shaman.vy = Math.sin(ang) * shaman.speed;
+        }
+        const nx = shaman.x + shaman.vx;
+        const ny = shaman.y + shaman.vy;
+        if (!isBlocked(nx, ny, shaman.size)) {
+            shaman.x = Math.max(GLACIAL_RIFT_START_X, Math.min(GLACIAL_RIFT_END_X, nx));
+            shaman.y = Math.max(0, Math.min(WORLD_HEIGHT, ny));
+        } else {
+            shaman.vx = -shaman.vx;
+            shaman.vy = -shaman.vy;
+        }
+    }
+    cryoShamans = cryoShamans.filter(s => s.hp > 0);
     for (const id in players) {
         const p = players[id];
         if (!p.active) continue;
@@ -2664,6 +2946,8 @@ function gameLoop() {
         zombies,
         ogres,
         frostWraiths,
+        iceMaulers,
+        cryoShamans,
         groundItems,
         projectiles: projectiles.map(p => ({ ...p, stuckTo: undefined })),
         dayNight,
