@@ -200,14 +200,14 @@ function getFreePosition() {
     return { x, y };
 }
 
-function getSpawnPositionAround(x, y, radius) {
-    let nx, ny;
+function getSpawnPositionAround(x, y, radius, minDist = 0) {
+    let nx, ny, dist;
     do {
         const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * radius;
+        dist = minDist + Math.random() * (radius - minDist);
         nx = x + Math.cos(angle) * dist;
         ny = y + Math.sin(angle) * dist;
-    } while (isBlocked(nx, ny, 20));
+    } while (isBlocked(nx, ny, 20) || collidesWithEntities(nx, ny, 20));
     return { x: nx, y: ny };
 }
 
@@ -672,6 +672,7 @@ wss.on('connection', ws => {
         burn: 0,
         slow: 0,
         eyeColor: '#ccc',
+        outlineColor: '#333',
         mouth: 'line',
         mouthColor: '#000',
         mana: 100,
@@ -751,6 +752,7 @@ wss.on('connection', ws => {
                 if (typeof data.name === 'string') player.name = data.name.slice(0, 20);
                 if (typeof data.color === 'string') player.color = data.color;
                 if (typeof data.eyeColor === 'string') player.eyeColor = data.eyeColor;
+                if (typeof data.outlineColor === 'string') player.outlineColor = data.outlineColor;
                 if (typeof data.mouth === 'string') player.mouth = data.mouth;
                 if (typeof data.mouthColor === 'string') player.mouthColor = data.mouthColor;
                 if (!player.active) {
@@ -1842,7 +1844,7 @@ function gameLoop() {
             const minions = zombies.filter(z => z.bossId === zombie.id);
             if (minions.length === 0 && zombie.spawnCooldown <= 0) {
                 for (let i = 0; i < 3; i++) {
-                    const { x: nx, y: ny } = getSpawnPositionAround(zombie.x, zombie.y, 60);
+                    const { x: nx, y: ny } = getSpawnPositionAround(zombie.x, zombie.y, 80, zombie.size + 20);
                     zombies.push(createZombie(nx, ny, null, 'attack', 'tree', zombie.id));
                 }
                 zombie.spawnCooldown = 600;
