@@ -735,6 +735,7 @@ wss.on('connection', ws => {
         canBomb: false,
         canSmoke: false,
         canTeleport: false,
+        stickyBomb: false,
         slowDuration: 60,
         swordDamage: 0,
         attackRange: 0,
@@ -1075,15 +1076,16 @@ wss.on('connection', ws => {
                                 player.missileUpgrade = true;
                             }
                         }
-                    } else if (player.class === 'rogue' && ['rogue-bomb', 'rogue-smoke', 'rogue-teleport', 'rogue-bow'].includes(skill)) {
+                    } else if (player.class === 'rogue' && ['rogue-bomb', 'rogue-sticky', 'rogue-smoke', 'rogue-teleport', 'rogue-bow'].includes(skill)) {
                         if (!player.rogueSkills) player.rogueSkills = {};
                         if (!player.rogueSkills[skill]) {
-                            if (skill === 'rogue-smoke' && !player.rogueSkills['rogue-bomb']) break;
+                            if ((skill === 'rogue-smoke' || skill === 'rogue-sticky') && !player.rogueSkills['rogue-bomb']) break;
                             player.skillPoints--;
                             player.rogueSkills[skill] = true;
                             if (skill === 'rogue-bomb') player.canBomb = true;
                             else if (skill === 'rogue-smoke') player.canSmoke = true;
                             else if (skill === 'rogue-teleport') player.canTeleport = true;
+                            else if (skill === 'rogue-sticky') player.stickyBomb = true;
                         }
                     }
                 }
@@ -1219,6 +1221,7 @@ wss.on('connection', ws => {
                             owner: playerId,
                             type: 'bomb',
                             timer: 60,
+                            sticky: player.stickyBomb,
                         });
                     }
                 }
@@ -1483,7 +1486,7 @@ function gameLoop() {
             });
             if (boars.length < 20) spawnBoars(3);
         } else {
-            dayNight.isBloodNight = dayNight.dayCount % 5 === 0;
+            dayNight.isBloodNight = true;
             if (dayNight.isBloodNight) {
                 const boss = ogres.find(o => o.isBoss);
                 if (boss) groundItems.push({ id: nextItemId++, item: 'Stone', quantity: 50, x: boss.x, y: boss.y });
@@ -1511,8 +1514,17 @@ function gameLoop() {
     for (const proj of projectiles) {
         if (proj.type === 'bomb' || proj.type === 'smoke' || proj.type === 'flame') {
             proj.timer--;
-            proj.x += proj.vx;
-            proj.y += proj.vy;
+            if (proj.stuckTo) {
+                if (proj.stuckTo.hp <= 0) {
+                    proj.stuckTo = null;
+                } else {
+                    proj.x = proj.stuckTo.x;
+                    proj.y = proj.stuckTo.y;
+                }
+            } else {
+                proj.x += proj.vx;
+                proj.y += proj.vy;
+            }
             proj.age = (proj.age || 0) + 1;
             if (proj.type === 'smoke' && proj.age > 120) {
                 proj.vx *= 0.9;
@@ -1520,62 +1532,73 @@ function gameLoop() {
                 if (Math.hypot(proj.vx, proj.vy) < 0.1) { proj.vx = 0; proj.vy = 0; }
             }
 
-            // Bounce off world bounds
-            if (proj.x < 0 || proj.x > WORLD_WIDTH) {
-                proj.vx *= -1;
-                proj.x = Math.max(0, Math.min(WORLD_WIDTH, proj.x));
-            }
-            if (proj.y < 0 || proj.y > WORLD_HEIGHT) {
-                proj.vy *= -1;
-                proj.y = Math.max(0, Math.min(WORLD_HEIGHT, proj.y));
-            }
-
-            // Bounce off players and mobs
-            const entities = [];
-            for (const id in players) {
-                const p = players[id];
-                if (p.active) entities.push({ x: p.x, y: p.y, size: p.size });
-            }
-            entities.push(...boars, ...zombies, ...ogres);
-            for (const e of entities) {
-                if (getDistance(e, proj) < e.size) {
-                    const speed = Math.hypot(proj.vx, proj.vy);
-                    const ang = Math.atan2(proj.y - e.y, proj.x - e.x);
-                    proj.vx = Math.cos(ang) * speed;
-                    proj.vy = Math.sin(ang) * speed;
-                    proj.x = e.x + Math.cos(ang) * (e.size + 1);
-                    proj.y = e.y + Math.sin(ang) * (e.size + 1);
+            if (!proj.stuckTo) {
+                // Bounce off world bounds
+                if (proj.x < 0 || proj.x > WORLD_WIDTH) {
+                    proj.vx *= -1;
+                    proj.x = Math.max(0, Math.min(WORLD_WIDTH, proj.x));
                 }
-            }
-            if (proj.type === 'bomb') {
-                for (const r of resources) {
-                    if (r.harvested) continue;
-                    if (getDistance(r, proj) < r.size / 2) {
-                        const speed = Math.hypot(proj.vx, proj.vy);
-                        const ang = Math.atan2(proj.y - r.y, proj.x - r.x);
-                        proj.vx = Math.cos(ang) * speed;
-                        proj.vy = Math.sin(ang) * speed;
-                        const dist = r.size / 2 + 1;
-                        proj.x = r.x + Math.cos(ang) * dist;
-                        proj.y = r.y + Math.sin(ang) * dist;
+                if (proj.y < 0 || proj.y > WORLD_HEIGHT) {
+                    proj.vy *= -1;
+                    proj.y = Math.max(0, Math.min(WORLD_HEIGHT, proj.y));
+                }
+
+                // Bounce off players and mobs or stick if upgraded
+                const entities = [];
+                for (const id in players) {
+                    const p = players[id];
+                    if (p.active) entities.push(p);
+                }
+                entities.push(...boars, ...zombies, ...ogres);
+                for (const e of entities) {
+                    if (getDistance(e, proj) < e.size) {
+                        if (proj.sticky) {
+                            proj.stuckTo = e;
+                            proj.vx = 0;
+                            proj.vy = 0;
+                            proj.x = e.x;
+                            proj.y = e.y;
+                            break;
+                        } else {
+                            const speed = Math.hypot(proj.vx, proj.vy);
+                            const ang = Math.atan2(proj.y - e.y, proj.x - e.x);
+                            proj.vx = Math.cos(ang) * speed;
+                            proj.vy = Math.sin(ang) * speed;
+                            proj.x = e.x + Math.cos(ang) * (e.size + 1);
+                            proj.y = e.y + Math.sin(ang) * (e.size + 1);
+                        }
                     }
                 }
-            }
-            for (const key in structures) {
-                const s = structures[key];
-                if (s.type === 'wood_wall' || s.type === 'stone_wall') {
-                    if (
-                        proj.x >= s.x &&
-                        proj.x <= s.x + s.size &&
-                        proj.y >= s.y &&
-                        proj.y <= s.y + s.size
-                    ) {
-                        proj.vx *= -1;
-                        proj.vy *= -1;
-                        if (proj.x < s.x) proj.x = s.x - 1;
-                        if (proj.x > s.x + s.size) proj.x = s.x + s.size + 1;
-                        if (proj.y < s.y) proj.y = s.y - 1;
-                        if (proj.y > s.y + s.size) proj.y = s.y + s.size + 1;
+                if (proj.type === 'bomb') {
+                    for (const r of resources) {
+                        if (r.harvested) continue;
+                        if (getDistance(r, proj) < r.size / 2) {
+                            const speed = Math.hypot(proj.vx, proj.vy);
+                            const ang = Math.atan2(proj.y - r.y, proj.x - r.x);
+                            proj.vx = Math.cos(ang) * speed;
+                            proj.vy = Math.sin(ang) * speed;
+                            const dist = r.size / 2 + 1;
+                            proj.x = r.x + Math.cos(ang) * dist;
+                            proj.y = r.y + Math.sin(ang) * dist;
+                        }
+                    }
+                }
+                for (const key in structures) {
+                    const s = structures[key];
+                    if (s.type === 'wood_wall' || s.type === 'stone_wall') {
+                        if (
+                            proj.x >= s.x &&
+                            proj.x <= s.x + s.size &&
+                            proj.y >= s.y &&
+                            proj.y <= s.y + s.size
+                        ) {
+                            proj.vx *= -1;
+                            proj.vy *= -1;
+                            if (proj.x < s.x) proj.x = s.x - 1;
+                            if (proj.x > s.x + s.size) proj.x = s.x + s.size + 1;
+                            if (proj.y < s.y) proj.y = s.y - 1;
+                            if (proj.y > s.y + s.size) proj.y = s.y + s.size + 1;
+                        }
                     }
                 }
             }
@@ -2395,7 +2418,16 @@ function gameLoop() {
         }
         return true;
     });
-    broadcast({ type: 'game-state', players: getActivePlayers(), boars, zombies, ogres, groundItems, projectiles, dayNight });
+    broadcast({
+        type: 'game-state',
+        players: getActivePlayers(),
+        boars,
+        zombies,
+        ogres,
+        groundItems,
+        projectiles: projectiles.map(p => ({ ...p, stuckTo: undefined })),
+        dayNight
+    });
 }
 generateWorld();
 setInterval(gameLoop, 1000 / 60);
