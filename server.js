@@ -964,12 +964,13 @@ wss.on('connection', ws => {
                         if (skill === 'summoner-attack') player.summonerSkills.attack++;
                         else if (skill === 'summoner-healer') player.summonerSkills.healer++;
                         else if (skill === 'summoner-ranged') player.summonerSkills.ranged++;
-                    } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-slow', 'mage-slow-extend', 'mage-bind', 'mage-missile'].includes(skill)) {
+                    } else if (player.class === 'mage' && ['mage-mana', 'mage-regen', 'mage-slow', 'mage-slow-extend', 'mage-bind', 'mage-missile', 'mage-missile-upgrade'].includes(skill)) {
                         if (!player.mageSkills) player.mageSkills = {};
                         if (!player.mageSkills[skill]) {
                             if (skill === 'mage-slow-extend' && !player.mageSkills['mage-slow']) break;
                             if (skill === 'mage-bind' && !player.mageSkills['mage-slow-extend']) break;
                             if (skill === 'mage-missile' && !player.mageSkills['mage-mana']) break;
+                            if (skill === 'mage-missile-upgrade' && !player.mageSkills['mage-missile']) break;
                             player.skillPoints--;
                             player.mageSkills[skill] = true;
                             if (skill === 'mage-mana') {
@@ -984,6 +985,8 @@ wss.on('connection', ws => {
                                 player.canBind = true;
                             } else if (skill === 'mage-missile') {
                                 player.canMissile = true;
+                            } else if (skill === 'mage-missile-upgrade') {
+                                player.missileUpgrade = true;
                             }
                         }
                     } else if (player.class === 'rogue' && ['rogue-bomb', 'rogue-smoke', 'rogue-teleport', 'rogue-bow'].includes(skill)) {
@@ -1044,9 +1047,14 @@ wss.on('connection', ws => {
             case 'cast-missile': {
                 if (player.class === 'mage' && player.canMissile && player.mana >= 75) {
                     player.mana -= 75;
-                    const target = findNearestTarget(player);
-                    if (target) {
-                        projectiles.push({ id: nextProjectileId++, x: player.x, y: player.y, vx: 0, vy: 0, owner: playerId, type: 'missile', targetType: target.type, targetId: target.id });
+                    const { targetX, targetY } = data;
+                    if (typeof targetX === 'number' && typeof targetY === 'number') {
+                        const angle = Math.atan2(targetY - player.y, targetX - player.x);
+                        const speed = 4;
+                        const spawnDist = player.size + 20;
+                        const sx = player.x + Math.cos(angle) * spawnDist;
+                        const sy = player.y + Math.sin(angle) * spawnDist;
+                        projectiles.push({ id: nextProjectileId++, x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: playerId, type: 'missile', lockTimer: 15 });
                     }
                 }
                 break;
@@ -1165,10 +1173,12 @@ wss.on('connection', ws => {
                     const gridY = Math.floor(y / GRID_CELL_SIZE);
                     const coordKey = `w${gridX},${gridY}`;
                     if (isAreaFree(gridX, gridY, 1) && !structures[coordKey]) {
-                        hotbarSlot.quantity--;
-                        if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
                         const baseX = gridX * GRID_CELL_SIZE;
                         const baseY = gridY * GRID_CELL_SIZE;
+                        const center = { x: baseX + GRID_CELL_SIZE / 2, y: baseY + GRID_CELL_SIZE / 2 };
+                        if (getDistance(player, center) < player.size + GRID_CELL_SIZE / 2) break;
+                        hotbarSlot.quantity--;
+                        if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
                         structures[coordKey] = { type: structureType, x: baseX, y: baseY, size: GRID_CELL_SIZE };
                         if (structureType !== 'torch') {
                             markArea(gridX, gridY, 1, true);
@@ -1181,6 +1191,8 @@ wss.on('connection', ws => {
                     const blockY = Math.floor(y / BLOCK_SIZE);
                     const coordKey = `b${blockX},${blockY}`;
                     if (!blockGrid[blockX][blockY] && !structures[coordKey]) {
+                        const center = { x: blockX * BLOCK_SIZE + BLOCK_SIZE / 2, y: blockY * BLOCK_SIZE + BLOCK_SIZE / 2 };
+                        if (getDistance(player, center) < player.size + BLOCK_SIZE / 2) break;
                         hotbarSlot.quantity--;
                         if (hotbarSlot.quantity <= 0) player.hotbar[data.hotbarIndex] = null;
                         structures[coordKey] = { type: structureType, x: blockX * BLOCK_SIZE, y: blockY * BLOCK_SIZE, size: BLOCK_SIZE };
@@ -1490,20 +1502,30 @@ function gameLoop() {
             }
             continue;
         }
-        if (proj.type === 'missile' && proj.targetType) {
-            let target;
-            if (proj.targetType === 'player') target = players[proj.targetId];
-            else if (proj.targetType === 'boar') target = boars.find(b => b.id === proj.targetId);
-            else if (proj.targetType === 'zombie') target = zombies.find(z => z.id === proj.targetId);
-            else if (proj.targetType === 'ogre') target = ogres.find(o => o.id === proj.targetId);
-            if (target) {
-                const angle = Math.atan2(target.y - proj.y, target.x - proj.x);
-                const speed = 1;
-                proj.vx = Math.cos(angle) * speed;
-                proj.vy = Math.sin(angle) * speed;
-            } else {
-                proj.remove = true;
-                continue;
+        if (proj.type === 'missile') {
+            if (proj.lockTimer > 0) proj.lockTimer--;
+            if (!proj.targetType && proj.lockTimer <= 0) {
+                const target = findNearestTarget({ x: proj.x, y: proj.y, id: proj.owner });
+                if (target) {
+                    proj.targetType = target.type;
+                    proj.targetId = target.id;
+                }
+            }
+            if (proj.targetType) {
+                let target;
+                if (proj.targetType === 'player') target = players[proj.targetId];
+                else if (proj.targetType === 'boar') target = boars.find(b => b.id === proj.targetId);
+                else if (proj.targetType === 'zombie') target = zombies.find(z => z.id === proj.targetId);
+                else if (proj.targetType === 'ogre') target = ogres.find(o => o.id === proj.targetId);
+                if (target) {
+                    const angle = Math.atan2(target.y - proj.y, target.x - proj.x);
+                    const speed = 1;
+                    proj.vx = Math.cos(angle) * speed;
+                    proj.vy = Math.sin(angle) * speed;
+                } else {
+                    proj.remove = true;
+                    continue;
+                }
             }
         }
         proj.x += proj.vx;
@@ -1629,6 +1651,7 @@ function gameLoop() {
         if (!hit) {
             for (const r of resources) {
                 if (r.harvested) continue;
+                if (proj.type === 'missile' && proj.owner && players[proj.owner] && players[proj.owner].missileUpgrade) continue;
                 if (getDistance(r, proj) < r.size / 2) {
                     if (!['slow', 'bind'].includes(proj.type)) {
                         let dmg = 2;
@@ -1784,10 +1807,8 @@ function gameLoop() {
         else if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
         if (zombie.giveUpTimer > 0) zombie.giveUpTimer--;
-        if (dayNight.isDay && !isInShadow(zombie) && !zombie.ownerId && !zombie.bossId && !zombie.isBigZombie) {
-            zombie.burn = Math.min(120, (zombie.burn || 0) + 1);
+        if (zombie.burn > 0) {
             if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
-        } else if (zombie.burn > 0) {
             zombie.burn--;
         }
 
