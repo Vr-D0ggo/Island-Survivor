@@ -256,7 +256,7 @@ function createZombie(x, y, ownerId = null, minionType = 'attack', kindOverride 
         vx: 0,
         vy: 0,
         wanderTimer: 0,
-        angle: 0,
+        angle: bossId ? Math.random() * Math.PI * 2 : 0,
         burn: 0,
         sunTimer: 0,
         slow: 0,
@@ -1617,7 +1617,9 @@ function gameLoop() {
                         if (getDistance(boar, proj) < radius) {
                             boar.hp = Math.max(0, boar.hp - damage);
                             boar.aggressive = true;
-                            broadcast({ type: 'boar-update', boar });
+                            if (boar.hp > 0) {
+                                broadcast({ type: 'boar-update', boar });
+                            }
                         }
                     }
                     for (const zombie of zombies) {
@@ -1978,7 +1980,7 @@ function gameLoop() {
         else if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
         if (zombie.giveUpTimer > 0) zombie.giveUpTimer--;
-        if (dayNight.isDay) {
+        if (dayNight.isDay && !zombie.isBigZombie) {
             zombie.sunTimer = (zombie.sunTimer || 0) + 1;
             if (zombie.sunTimer % 60 === 0) {
                 zombie.hp = Math.max(0, zombie.hp - 1);
@@ -1997,17 +1999,30 @@ function gameLoop() {
             const boss = zombies.find(z => z.id === zombie.bossId && z.isBigZombie);
             if (boss) {
                 const distBoss = getDistance(zombie, boss);
-                if (distBoss > 80) moveToward(zombie, boss); else { zombie.vx = 0; zombie.vy = 0; }
+                if (distBoss > 80) {
+                    moveToward(zombie, boss);
+                } else {
+                    if (boss.vx === 0 && boss.vy === 0) {
+                        zombie.angle += 0.02;
+                        const radius = 60;
+                        const tx = boss.x + Math.cos(zombie.angle) * radius;
+                        const ty = boss.y + Math.sin(zombie.angle) * radius;
+                        zombie.speed = zombie.baseSpeed * 0.5;
+                        moveToward(zombie, { x: tx, y: ty });
+                    } else {
+                        zombie.vx = 0; zombie.vy = 0;
+                    }
+                }
                 let targetPlayer = null; let playerDist = Infinity;
                 for (const id in players) {
                     const p = players[id];
                     if (!p.active) continue;
                     const d = getDistance(zombie, p);
-                    if (d < 100 && d < playerDist) { playerDist = d; targetPlayer = p; }
+                    if (d < 300 && d < playerDist) { playerDist = d; targetPlayer = p; }
                 }
                 if (targetPlayer) {
                     moveToward(zombie, targetPlayer);
-                    if (playerDist < zombie.size + targetPlayer.size && zombie.cooldown <= 0) {
+                    if (playerDist < (zombie.size + targetPlayer.size) * 3 && zombie.cooldown <= 0) {
                         if (targetPlayer.invulnerable <= 0) {
                             let dmg = zombie.damage;
                             if (dayNight.isBloodNight) dmg *= 1.5;
