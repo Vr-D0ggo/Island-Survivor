@@ -119,6 +119,7 @@ const preSpawnScreen = document.getElementById('pre-spawn-screen');
 const nameInput = document.getElementById('name-input');
 const colorInput = document.getElementById('color-input');
 const eyeColorInput = document.getElementById('eye-color-input');
+const outlineColorInput = document.getElementById('outline-color-input');
 const customizeBtn = document.getElementById('customize-btn');
 const customizationPanel = document.getElementById('customization-panel');
 const mouthSelect = document.getElementById('mouth-select');
@@ -185,47 +186,50 @@ function renderMouth(ctx, x, y, size, type, color) {
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
-    switch (type) {
-        case 'line':
-            ctx.beginPath();
-            ctx.moveTo(x - size, y);
-            ctx.lineTo(x + size, y);
-            ctx.stroke();
-            break;
-        case 'square':
-            ctx.fillRect(x - size, y - size, size * 2, size * 2);
-            break;
-        case 'circle':
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            break;
-        case 'oval':
-            ctx.save();
-            ctx.translate(x, y);
-            ctx.scale(1.5, 1);
-            ctx.beginPath();
-            ctx.arc(0, 0, size, 0, Math.PI * 2);
-            ctx.restore();
-            ctx.fill();
-            break;
-        case 'diamond':
-            ctx.beginPath();
-            ctx.moveTo(x, y - size);
-            ctx.lineTo(x + size, y);
-            ctx.lineTo(x, y + size);
-            ctx.lineTo(x - size, y);
-            ctx.closePath();
-            ctx.fill();
-            break;
-        case 'triangle':
-            ctx.beginPath();
-            ctx.moveTo(x, y - size);
-            ctx.lineTo(x + size, y + size);
-            ctx.lineTo(x - size, y + size);
-            ctx.closePath();
-            ctx.fill();
-            break;
+    if (type === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(x - size, y);
+        ctx.lineTo(x + size, y);
+        ctx.stroke();
+        return;
+    }
+    if (type === 'square') {
+        ctx.fillRect(x - size, y - size, size * 2, size * 2);
+        return;
+    }
+    if (type === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+    }
+    if (type === 'oval') {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1.5, 1);
+        ctx.beginPath();
+        ctx.arc(0, 0, size, 0, Math.PI * 2);
+        ctx.restore();
+        ctx.fill();
+        return;
+    }
+    if (type === 'diamond') {
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size, y);
+        ctx.lineTo(x, y + size);
+        ctx.lineTo(x - size, y);
+        ctx.closePath();
+        ctx.fill();
+        return;
+    }
+    if (type === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size, y + size);
+        ctx.lineTo(x - size, y + size);
+        ctx.closePath();
+        ctx.fill();
     }
 }
 
@@ -259,7 +263,7 @@ if (customizeBtn) customizeBtn.onclick = () => {
     customizationPanel.classList.toggle('hidden');
     drawPreview();
 };
-[colorInput, eyeColorInput, mouthSelect, mouthColorInput].forEach(el => {
+[colorInput, eyeColorInput, outlineColorInput, mouthSelect, mouthColorInput].forEach(el => {
     if (el) el.addEventListener('input', drawPreview);
 });
 function drawPreview() {
@@ -272,7 +276,7 @@ function drawPreview() {
     previewCtx.arc(x, y, size, 0, Math.PI * 2);
     previewCtx.fillStyle = colorInput.value;
     previewCtx.fill();
-    previewCtx.strokeStyle = '#333';
+    previewCtx.strokeStyle = outlineColorInput.value;
     previewCtx.lineWidth = 3;
     previewCtx.stroke();
     previewCtx.beginPath();
@@ -287,7 +291,7 @@ classButtons.forEach(btn => {
         const cls = btn.dataset.class;
         classScreen.classList.add('hidden');
         preSpawn = false;
-        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value, eyeColor: eyeColorInput.value, mouth: mouthSelect.value, mouthColor: mouthColorInput.value }));
+        socket.send(JSON.stringify({ type: 'set-name', name: nameInput.value || 'Survivor', color: colorInput.value, eyeColor: eyeColorInput.value, outlineColor: outlineColorInput.value, mouth: mouthSelect.value, mouthColor: mouthColorInput.value }));
         socket.send(JSON.stringify({ type: 'set-class', class: cls }));
     };
 });
@@ -960,7 +964,7 @@ function drawPlayer(player, isMe) {
     ctx.arc(x, y, player.size, 0, Math.PI * 2);
     ctx.fillStyle = player.color || (isMe ? 'hsl(120, 100%, 70%)' : 'hsl(0, 100%, 70%)');
     ctx.fill();
-    ctx.strokeStyle = '#333';
+    ctx.strokeStyle = player.outlineColor || '#333';
     ctx.lineWidth = 3;
     ctx.stroke();
     let angle = 0;
@@ -1112,7 +1116,7 @@ function drawZombie(zombie) {
     ctx.arc(x, y, zombie.size, 0, Math.PI * 2);
 
     // Pick colors based on the creature type for visual distinction.
-    let bodyColor = '#ff0000'; // default zombie now red
+    let bodyColor = '#00ff00'; // default zombie now green
     let eyeColor = '#ccc';
     if (zombie.kind === 'skeleton') {
         bodyColor = '#ddd';
