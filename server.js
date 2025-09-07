@@ -1050,7 +1050,7 @@ wss.on('connection', ws => {
                     const { targetX, targetY } = data;
                     if (typeof targetX === 'number' && typeof targetY === 'number') {
                         const angle = Math.atan2(targetY - player.y, targetX - player.x);
-                        const speed = 4;
+                        const speed = 2;
                         const spawnDist = player.size + 20;
                         const sx = player.x + Math.cos(angle) * spawnDist;
                         const sy = player.y + Math.sin(angle) * spawnDist;
@@ -1519,7 +1519,7 @@ function gameLoop() {
                 else if (proj.targetType === 'ogre') target = ogres.find(o => o.id === proj.targetId);
                 if (target) {
                     const angle = Math.atan2(target.y - proj.y, target.x - proj.x);
-                    const speed = 1;
+                    const speed = 0.5;
                     proj.vx = Math.cos(angle) * speed;
                     proj.vy = Math.sin(angle) * speed;
                 } else {

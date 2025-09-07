@@ -188,50 +188,47 @@ function renderMouth(ctx, x, y, size, type, color) {
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
-    if (type === 'line') {
-        ctx.beginPath();
-        ctx.moveTo(x - size, y);
-        ctx.lineTo(x + size, y);
-        ctx.stroke();
-        return;
-    }
-    if (type === 'square') {
-        ctx.fillRect(x - size, y - size, size * 2, size * 2);
-        return;
-    }
-    if (type === 'circle') {
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
-        return;
-    }
-    if (type === 'oval') {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.scale(1.5, 1);
-        ctx.beginPath();
-        ctx.arc(0, 0, size, 0, Math.PI * 2);
-        ctx.restore();
-        ctx.fill();
-        return;
-    }
-    if (type === 'diamond') {
-        ctx.beginPath();
-        ctx.moveTo(x, y - size);
-        ctx.lineTo(x + size, y);
-        ctx.lineTo(x, y + size);
-        ctx.lineTo(x - size, y);
-        ctx.closePath();
-        ctx.fill();
-        return;
-    }
-    if (type === 'triangle') {
-        ctx.beginPath();
-        ctx.moveTo(x, y - size);
-        ctx.lineTo(x + size, y + size);
-        ctx.lineTo(x - size, y + size);
-        ctx.closePath();
-        ctx.fill();
+    switch (type) {
+        case 'line':
+            ctx.beginPath();
+            ctx.moveTo(x - size, y);
+            ctx.lineTo(x + size, y);
+            ctx.stroke();
+            break;
+        case 'square':
+            ctx.fillRect(x - size, y - size, size * 2, size * 2);
+            break;
+        case 'circle':
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case 'oval':
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(1.5, 1);
+            ctx.beginPath();
+            ctx.arc(0, 0, size, 0, Math.PI * 2);
+            ctx.restore();
+            ctx.fill();
+            break;
+        case 'diamond':
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x + size, y);
+            ctx.lineTo(x, y + size);
+            ctx.lineTo(x - size, y);
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 'triangle':
+            ctx.beginPath();
+            ctx.moveTo(x, y - size);
+            ctx.lineTo(x + size, y + size);
+            ctx.lineTo(x - size, y + size);
+            ctx.closePath();
+            ctx.fill();
+            break;
     }
 }
 
@@ -265,8 +262,21 @@ if (customizeBtn) customizeBtn.onclick = () => {
     customizationPanel.classList.toggle('hidden');
     drawPreview();
 };
+// Update preview and send new appearance when customization changes
 [colorInput, eyeColorInput, outlineColorInput, mouthSelect, mouthColorInput].forEach(el => {
-    if (el) el.addEventListener('input', drawPreview);
+    if (!el) return;
+    el.addEventListener('input', () => {
+        drawPreview();
+        safeSend({
+            type: 'set-name',
+            name: nameInput.value || 'Survivor',
+            color: colorInput.value,
+            eyeColor: eyeColorInput.value,
+            outlineColor: outlineColorInput.value,
+            mouth: mouthSelect.value,
+            mouthColor: mouthColorInput.value
+        });
+    });
 });
 function drawPreview() {
     if (!previewCtx) return;
