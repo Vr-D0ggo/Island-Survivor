@@ -167,12 +167,14 @@ const mageSkillNodes = [
     document.getElementById('skill-mage-slow'),
     document.getElementById('skill-mage-slow-extend'),
     document.getElementById('skill-mage-bind'),
-    document.getElementById('skill-mage-missile')
+    document.getElementById('skill-mage-missile'),
+    document.getElementById('skill-mage-missile-upgrade')
 ];
 const mageSkillPrereqs = {
     'mage-slow-extend': 'mage-slow',
     'mage-bind': 'mage-slow-extend',
-    'mage-missile': 'mage-mana'
+    'mage-missile': 'mage-mana',
+    'mage-missile-upgrade': 'mage-missile'
 };
 const rogueSkillNodes = [
     document.getElementById('skill-rogue-bomb'),
@@ -1558,7 +1560,7 @@ window.addEventListener('keydown', e => {
                 } else if (selectedMageSpell === 'slow' && me.canSlow) {
                     safeSend({ type: 'cast-slow', targetX, targetY });
                 } else if (selectedMageSpell === 'missile' && me.canMissile && me.mana >= 75) {
-                    safeSend({ type: 'cast-missile' });
+                    safeSend({ type: 'cast-missile', targetX, targetY });
                 }
             } else if (me.class === 'knight' && me.knightSkills) {
                 if (selectedKnightAbility === 'dash' && me.knightSkills['knight-shield']) {
