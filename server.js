@@ -1572,6 +1572,27 @@ function gameLoop() {
                     continue;
                 }
             }
+            // Steer around obstacles like trees and rocks
+            let avoidX = 0;
+            let avoidY = 0;
+            const nextX = proj.x + proj.vx;
+            const nextY = proj.y + proj.vy;
+            for (const r of resources) {
+                if (r.harvested) continue;
+                const dist = getDistance({ x: nextX, y: nextY }, r);
+                if (dist < r.size / 2 + 5) {
+                    avoidX += nextX - r.x;
+                    avoidY += nextY - r.y;
+                }
+            }
+            if (avoidX !== 0 || avoidY !== 0) {
+                const speed = Math.hypot(proj.vx, proj.vy) || 0.0001;
+                proj.vx += avoidX * 0.05;
+                proj.vy += avoidY * 0.05;
+                const mag = Math.hypot(proj.vx, proj.vy) || 1;
+                proj.vx = (proj.vx / mag) * speed;
+                proj.vy = (proj.vy / mag) * speed;
+            }
         }
         proj.x += proj.vx;
         proj.y += proj.vy;
@@ -1696,7 +1717,6 @@ function gameLoop() {
         if (!hit) {
             for (const r of resources) {
                 if (r.harvested) continue;
-                if (proj.type === 'missile' && proj.owner && players[proj.owner] && players[proj.owner].missileUpgrade) continue;
                 if (getDistance(r, proj) < r.size / 2) {
                     if (!['slow', 'bind'].includes(proj.type)) {
                         let dmg = 2;
