@@ -352,6 +352,7 @@ canvas {
 #skill-knight-health { grid-column: 3; grid-row: 1; }
 #skill-knight-whirlwind { grid-column: 1; grid-row: 4; }
 #skill-knight-shield { grid-column: 2; grid-row: 2; }
+#skill-knight-attack-range { grid-column: 2; grid-row: 4; }
 
 #summoner-skills { grid-template-columns: repeat(3, 150px); }
 #skill-summoner-attack { grid-column: 1; grid-row: 1; }

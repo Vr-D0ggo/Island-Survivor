@@ -258,6 +258,7 @@ function createZombie(x, y, ownerId = null, minionType = 'attack', kindOverride 
         wanderTimer: 0,
         angle: 0,
         burn: 0,
+        sunTimer: 0,
         slow: 0,
         bind: 0,
         ownerId,
@@ -945,17 +946,19 @@ wss.on('connection', ws => {
                         player.skillPoints--;
                         player.skills[skill] = true;
                         player.class = skill;
-                    } else if (player.class === 'knight' && ['knight-damage', 'knight-speed', 'knight-health', 'knight-shield', 'knight-whirlwind'].includes(skill)) {
+                    } else if (player.class === 'knight' && ['knight-damage', 'knight-speed', 'knight-health', 'knight-shield', 'knight-whirlwind', 'knight-attack-range'].includes(skill)) {
                         if (!player.knightSkills) player.knightSkills = {};
                         if (!player.knightSkills[skill]) {
                             // prerequisite checks
                             if (skill === 'knight-shield' && !player.knightSkills['knight-speed']) break;
                             if (skill === 'knight-whirlwind' && !player.knightSkills['knight-damage']) break;
+                            if (skill === 'knight-attack-range' && !player.knightSkills['knight-whirlwind']) break;
                             player.skillPoints--;
                             player.knightSkills[skill] = true;
                             if (skill === 'knight-damage') player.swordDamage += 2;
                             else if (skill === 'knight-speed') { player.baseSpeed += 0.5; player.speed += 0.5; }
                             else if (skill === 'knight-health') { player.maxHp += 5; player.hp += 5; }
+                            else if (skill === 'knight-attack-range') { player.attackRange = (player.attackRange || 20) * 2; }
                         }
                     } else if (player.class === 'summoner' && ['summoner-attack', 'summoner-healer', 'summoner-ranged'].includes(skill)) {
                         if (!player.summonerSkills) player.summonerSkills = { attack: 0, healer: 0, ranged: 0 };
@@ -1155,7 +1158,8 @@ wss.on('connection', ws => {
                             owner: playerId,
                             type: 'smoke',
                             timer: 300,
-                            radius: 80,
+                            radius: 120,
+                            age: 0,
                         });
                     }
                 }
@@ -1442,6 +1446,12 @@ function gameLoop() {
             proj.timer--;
             proj.x += proj.vx;
             proj.y += proj.vy;
+            proj.age = (proj.age || 0) + 1;
+            if (proj.type === 'smoke' && proj.age > 120) {
+                proj.vx *= 0.9;
+                proj.vy *= 0.9;
+                if (Math.hypot(proj.vx, proj.vy) < 0.1) { proj.vx = 0; proj.vy = 0; }
+            }
 
             // Bounce off world bounds
             if (proj.x < 0 || proj.x > WORLD_WIDTH) {
@@ -1468,6 +1478,20 @@ function gameLoop() {
                     proj.vy = Math.sin(ang) * speed;
                     proj.x = e.x + Math.cos(ang) * (e.size + 1);
                     proj.y = e.y + Math.sin(ang) * (e.size + 1);
+                }
+            }
+            if (proj.type === 'bomb') {
+                for (const r of resources) {
+                    if (r.harvested) continue;
+                    if (getDistance(r, proj) < r.size / 2) {
+                        const speed = Math.hypot(proj.vx, proj.vy);
+                        const ang = Math.atan2(proj.y - r.y, proj.x - r.x);
+                        proj.vx = Math.cos(ang) * speed;
+                        proj.vy = Math.sin(ang) * speed;
+                        const dist = r.size / 2 + 1;
+                        proj.x = r.x + Math.cos(ang) * dist;
+                        proj.y = r.y + Math.sin(ang) * dist;
+                    }
                 }
             }
             for (const key in structures) {
@@ -1872,6 +1896,15 @@ function gameLoop() {
         else if (zombie.slow > 0) { zombie.slow--; zombie.speed = zombie.baseSpeed * 0.5; }
         if (zombie.cooldown > 0) zombie.cooldown--;
         if (zombie.giveUpTimer > 0) zombie.giveUpTimer--;
+        if (dayNight.isDay) {
+            zombie.sunTimer = (zombie.sunTimer || 0) + 1;
+            if (zombie.sunTimer % 60 === 0) {
+                zombie.hp = Math.max(0, zombie.hp - 1);
+                broadcast({ type: 'zombie-update', zombie });
+            }
+        } else {
+            zombie.sunTimer = 0;
+        }
         if (zombie.burn > 0) {
             if (zombie.burn % 30 === 0) zombie.hp = Math.max(0, zombie.hp - 1);
             zombie.burn--;
