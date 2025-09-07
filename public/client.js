@@ -42,6 +42,7 @@ let riftBlizzard = { active: false };
 let selectedMageSpell = 'slow';
 let selectedKnightAbility = 'non';
 let selectedRogueAbility = 'bomb';
+let selectedGuardianAbility = 'shield-wall';
 let attackCooldown = 0; // no global left-click cooldown
 let camera = { x: 0, y: 0 };
 const OLD_WORLD_WIDTH = 3000;
@@ -480,6 +481,12 @@ function updateAbilityIndicator() {
         } else {
             abilityIndicator.classList.add('hidden');
         }
+    } else if (me.class === 'guardian') {
+        const abilities = ['shield-wall', 'taunt', 'fortify'];
+        if (!abilities.includes(selectedGuardianAbility)) selectedGuardianAbility = abilities[0];
+        const labelMap = { 'shield-wall': 'Shield Wall', taunt: 'Taunt', fortify: 'Fortify' };
+        abilityIndicator.textContent = `Ability: ${labelMap[selectedGuardianAbility]}`;
+        abilityIndicator.classList.remove('hidden');
     } else {
         abilityIndicator.classList.add('hidden');
     }
@@ -1614,6 +1621,13 @@ window.addEventListener('wheel', e => {
                 updateAbilityIndicator();
                 e.preventDefault();
             }
+        } else if (me?.class === 'guardian') {
+            const abilities = ['shield-wall', 'taunt', 'fortify'];
+            let idx = abilities.indexOf(selectedGuardianAbility);
+            idx = (idx + (e.deltaY > 0 ? 1 : -1) + abilities.length) % abilities.length;
+            selectedGuardianAbility = abilities[idx];
+            updateAbilityIndicator();
+            e.preventDefault();
         }
     }
 }, { passive: false });
@@ -1661,6 +1675,14 @@ window.addEventListener('keydown', e => {
                     safeSend({ type: 'move', x: me.x, y: me.y });
                 } else if (selectedRogueAbility === 'bow') {
                     safeSend({ type: 'shoot-arrow', targetX, targetY });
+                }
+            } else if (me.class === 'guardian') {
+                if (selectedGuardianAbility === 'shield-wall') {
+                    safeSend({ type: 'guardian-shield-wall' });
+                } else if (selectedGuardianAbility === 'taunt') {
+                    safeSend({ type: 'guardian-taunt' });
+                } else if (selectedGuardianAbility === 'fortify') {
+                    safeSend({ type: 'guardian-fortify' });
                 }
             }
             e.preventDefault();
