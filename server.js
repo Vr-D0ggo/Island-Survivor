@@ -63,6 +63,8 @@ let groundItems = [];
 let nextItemId = 0;
 let projectiles = [];
 let nextProjectileId = 0;
+let rockBossDefeated = false;
+let broadcastCounter = 0;
 let grid = Array(WORLD_WIDTH / GRID_CELL_SIZE)
     .fill(null)
     .map(() => Array(WORLD_HEIGHT / GRID_CELL_SIZE).fill(false));
@@ -87,6 +89,7 @@ function markArea(gridX, gridY, size, isOccupied) { for (let x = gridX; x < grid
 
 function generateWorld() {
     console.log("Generating world with safe spawn zone...");
+    rockBossDefeated = false;
     const gridWidth = WORLD_WIDTH / GRID_CELL_SIZE;
     const gridHeight = WORLD_HEIGHT / GRID_CELL_SIZE;
     // Keep the safe spawn zone centred in the original area.
@@ -1069,7 +1072,8 @@ wss.on('connection', ws => {
         groundItems,
         projectiles,
         dayNight,
-        riftBlizzard
+        riftBlizzard,
+        rockBossDefeated
     }));
 
     players[playerId] = newPlayer;
@@ -1083,6 +1087,10 @@ wss.on('connection', ws => {
                 if (player.dashTime && player.dashTime > 0) break;
                 const nx = data.x;
                 const ny = data.y;
+                if (!rockBossDefeated && nx >= GLACIAL_RIFT_START_X - player.size) {
+                    ws.send(JSON.stringify({ type: 'notification', message: 'Defeat the Rock Golem to enter the Ice Biome!' }));
+                    break;
+                }
                 if (!isBlocked(nx, ny, player.size) && !collidesWithEntities(nx, ny, player.size, player)) {
                     player.x = nx;
                     player.y = ny;
@@ -1682,6 +1690,10 @@ wss.on('connection', ws => {
             case 'rogue-teleport': {
                 if (player.class === 'rogue' && player.canTeleport) {
                     const { targetX, targetY } = data;
+                    if (!rockBossDefeated && targetX >= GLACIAL_RIFT_START_X - player.size) {
+                        ws.send(JSON.stringify({ type: 'notification', message: 'Defeat the Rock Golem to enter the Ice Biome!' }));
+                        break;
+                    }
                     player.x = targetX;
                     player.y = targetY;
                 }
@@ -3002,8 +3014,13 @@ function gameLoop() {
         if (p.tauntCooldown && p.tauntCooldown > 0) p.tauntCooldown--;
         if (p.fortify && p.fortify > 0) p.fortify--;
         if (p.dashTime && p.dashTime > 0) {
-            p.x = Math.max(0, Math.min(WORLD_WIDTH, p.x + p.dashVX));
-            p.y = Math.max(0, Math.min(WORLD_HEIGHT, p.y + p.dashVY));
+            let nx = Math.max(0, Math.min(WORLD_WIDTH, p.x + p.dashVX));
+            let ny = Math.max(0, Math.min(WORLD_HEIGHT, p.y + p.dashVY));
+            if (!rockBossDefeated && nx >= GLACIAL_RIFT_START_X - p.size) {
+                nx = Math.min(nx, GLACIAL_RIFT_START_X - p.size);
+            }
+            p.x = nx;
+            p.y = ny;
             handleDashDamage(p, Math.atan2(p.dashVY, p.dashVX), id);
             p.dashTime--;
             p.moving = true;
@@ -3051,21 +3068,28 @@ function gameLoop() {
         }
         return true;
     });
-    broadcast({
-        type: 'game-state',
-        players: getActivePlayers(),
-        boars,
-        zombies,
-        ogres,
-        frostWraiths,
-        iceMaulers,
-        cryoShamans,
-        titan: glacierTitan,
-        groundItems,
-        projectiles: projectiles.map(p => ({ ...p, stuckTo: undefined })),
-        dayNight,
-        riftBlizzard
-    });
+    if (!rockBossDefeated && !ogres.some(o => o.isBoss)) {
+        rockBossDefeated = true;
+        broadcast({ type: 'notification', message: 'The Rock Golem has been defeated! The Ice Biome is now accessible.' });
+    }
+    if (broadcastCounter++ % 2 === 0) {
+        broadcast({
+            type: 'game-state',
+            players: getActivePlayers(),
+            boars,
+            zombies,
+            ogres,
+            frostWraiths,
+            iceMaulers,
+            cryoShamans,
+            titan: glacierTitan,
+            groundItems,
+            projectiles: projectiles.map(p => ({ ...p, stuckTo: undefined })),
+            dayNight,
+            riftBlizzard,
+            rockBossDefeated
+        });
+    }
 }
 generateWorld();
 setInterval(gameLoop, 1000 / 60);

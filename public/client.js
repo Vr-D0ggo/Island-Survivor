@@ -46,6 +46,8 @@ let selectedRogueAbility = 'bomb';
 let selectedGuardianAbility = 'shield-wall';
 let attackCooldown = 0; // no global left-click cooldown
 let camera = { x: 0, y: 0 };
+let rockBossDefeated = false;
+let gateWarning = 0;
 const OLD_WORLD_WIDTH = 3000;
 const WORLD_WIDTH = OLD_WORLD_WIDTH * 3;
 const GLACIAL_RIFT_START_X = OLD_WORLD_WIDTH * 2;
@@ -561,6 +563,7 @@ socket.onmessage = event => {
             projectiles = data.projectiles || [];
             dayNight = data.dayNight || dayNight;
             riftBlizzard = data.riftBlizzard || riftBlizzard;
+            rockBossDefeated = data.rockBossDefeated || false;
             Object.values(players).forEach(initializePlayerForRender);
             if (!gameLoopStarted) { gameLoopStarted = true; requestAnimationFrame(gameLoop); }
             updatePlayerHealthBar();
@@ -580,6 +583,7 @@ socket.onmessage = event => {
             riftBlizzard = data.riftBlizzard || riftBlizzard;
             groundItems = data.groundItems || groundItems;
             projectiles = data.projectiles || projectiles;
+            if (typeof data.rockBossDefeated !== 'undefined') rockBossDefeated = data.rockBossDefeated;
             for (const id in data.players) {
                 if (players[id]) {
                     const serverPlayer = data.players[id];
@@ -843,6 +847,7 @@ function updateHotbarUI() {
 // --- Player Interaction ---
 function playerMovement() {
     const player = players[myPlayerId]; if (!player) return;
+    if (gateWarning > 0) gateWarning--;
     let dx = 0; let dy = 0;
     if (keys['KeyW']) dy -= 1;
     if (keys['KeyS']) dy += 1;
@@ -867,6 +872,13 @@ function playerMovement() {
             const s = structures[key];
             const size = s.size || (s.type === 'workbench' ? GRID_CELL_SIZE : BLOCK_SIZE);
             if (predictedX > s.x - player.size && predictedX < s.x + size + player.size && predictedY > s.y - player.size && predictedY < s.y + size + player.size) { collision = true; break; }
+        }
+    }
+    if (!collision && !rockBossDefeated && predictedX >= GLACIAL_RIFT_START_X - player.size) {
+        collision = true;
+        if (gateWarning <= 0) {
+            showNotification('Defeat the Rock Golem to enter the Ice Biome!');
+            gateWarning = 60;
         }
     }
     if (!collision) {
