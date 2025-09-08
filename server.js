@@ -8,6 +8,12 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Map of player ids to their WebSocket connections for O(1) lookup
+const clients = new Map();
+function getClient(id) {
+    return clients.get(id);
+}
+
 app.use(express.static('public'));
 
 // --- Game Constants ---
@@ -589,7 +595,7 @@ function consumeItems(player, itemName, amount) {
     player.inventory = player.inventory.map(consumeFrom);
     player.hotbar = player.hotbar.map(consumeFrom);
 }
-function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = [...wss.clients].find(c => c.id === playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
+function addItemToPlayer(playerId, item, quantity) { const p = players[playerId]; if (!p) return; let s = [...p.inventory, ...p.hotbar].find(i => i && i.item === item); if (s) s.quantity += quantity; else { let i = p.hotbar.findIndex(x => x === null); if (i !== -1) p.hotbar[i] = { item, quantity }; else { i = p.inventory.findIndex(x => x === null); if (i !== -1) p.inventory[i] = { item, quantity }; else console.log(`Inv full for ${playerId}`); } } const c = getClient(playerId); if (c) { c.send(JSON.stringify({ type: 'inventory-update', inventory: p.inventory, hotbar: p.hotbar })); c.send(JSON.stringify({ type: 'item-pickup-notif', item: item, amount: quantity })); } }
 function handleDashDamage(player, angle, playerId) {
     const dmg = 3 + (player.swordDamage || 0);
     const knock = 40;
@@ -606,7 +612,7 @@ function handleDashDamage(player, angle, playerId) {
             target.x += Math.cos(angle) * tknock;
             target.y += Math.sin(angle) * tknock;
             target.lastHitBy = playerId;
-            const c = [...wss.clients].find(cl => cl.id === id);
+            const c = getClient(id);
             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
         }
     }
@@ -639,7 +645,7 @@ function handleDashDamage(player, angle, playerId) {
                 if (ogre.isBoss) groundItems.push({ id: nextItemId++, item: 'Mace', quantity: 1, x: ogre.x, y: ogre.y });
                 else groundItems.push({ id: nextItemId++, item: 'Stone', quantity: 10, x: ogre.x, y: ogre.y });
                 ogres = ogres.filter(o => o.id !== ogre.id);
-                const c = [...wss.clients].find(cl => cl.id === playerId);
+                const c = getClient(playerId);
                 if (c) levelUp(player, c);
                 broadcast({ type: 'ogre-update', ogre });
                 break;
@@ -694,7 +700,7 @@ function handleWhirlwindDamage(player, playerId) {
             target.x += Math.cos(angle) * tknock;
             target.y += Math.sin(angle) * tknock;
             target.lastHitBy = playerId;
-            const c = [...wss.clients].find(cl => cl.id === id);
+            const c = getClient(id);
             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
         }
     }
@@ -710,7 +716,7 @@ function handleWhirlwindDamage(player, playerId) {
                     if (obj.isBoss) groundItems.push({ id: nextItemId++, item: 'Mace', quantity: 1, x: obj.x, y: obj.y });
                     else groundItems.push({ id: nextItemId++, item: 'Stone', quantity: 10, x: obj.x, y: obj.y });
                     arr.splice(i, 1);
-                    const c = [...wss.clients].find(cl => cl.id === playerId);
+                    const c = getClient(playerId);
                     if (c) levelUp(player, c);
                 } else {
                     obj.aggressive = true;
@@ -985,6 +991,7 @@ function isInShadow(entity) {
 wss.on('connection', ws => {
     const playerId = 'player-' + Math.random().toString(36).substr(2, 9);
     ws.id = playerId;
+    clients.set(playerId, ws);
     const { x: spawnX, y: spawnY } = getSpawnPositionAround(OLD_WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 50);
     const newPlayer = {
         id: playerId,
@@ -1202,7 +1209,7 @@ wss.on('connection', ws => {
                     if (player.summonerSkills && player.summonerSkills['summoner-lockon']) {
                         commandPlayerMinions(playerId, 'player', data.targetId);
                     }
-                    const c = [...wss.clients].find(cl => cl.id === data.targetId);
+                    const c = getClient(data.targetId);
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
                     if (data.item && data.item.toLowerCase() === 'mace') {
                         const angle = Math.atan2(target.y - player.y, target.x - player.x);
@@ -1903,7 +1910,12 @@ wss.on('connection', ws => {
                 break;
         }
     });
-    ws.on('close', () => { console.log(`Player ${playerId} disconnected.`); delete players[playerId]; broadcast({ type: 'player-leave', playerId: playerId }); });
+    ws.on('close', () => {
+        console.log(`Player ${playerId} disconnected.`);
+        delete players[playerId];
+        clients.delete(playerId);
+        broadcast({ type: 'player-leave', playerId: playerId });
+    });
 });
 
 // --- Game Loop & Server Start ---
@@ -2092,7 +2104,7 @@ function gameLoop() {
                             if (p.fortify && p.fortify > 0) dmg = Math.max(0, dmg - 2);
                             p.hp = Math.max(0, p.hp - dmg);
                             p.lastHitBy = proj.owner || 'ogre';
-                            const c = [...wss.clients].find(cl => cl.id === id);
+                            const c = getClient(id);
                             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
                         }
                     }
@@ -2194,11 +2206,11 @@ function gameLoop() {
                         if (p.fortify && p.fortify > 0) dmg = Math.max(0, dmg - 2);
                         p.hp = Math.max(0, p.hp - dmg);
                         p.lastHitBy = proj.owner || 'ogre';
-                        const c = [...wss.clients].find(cl => cl.id === id);
+                        const c = getClient(id);
                         if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
                         if (p.hp <= 0 && proj.owner && players[proj.owner]) {
                             const killer = players[proj.owner];
-                            const kc = [...wss.clients].find(cl => cl.id === proj.owner);
+                            const kc = getClient(proj.owner);
                             levelUp(killer, kc);
                         }
                         if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
@@ -2213,11 +2225,11 @@ function gameLoop() {
                         if (proj.type !== 'arrow' && proj.type !== 'minion') p.burn = 120;
                         p.hp = Math.max(0, p.hp - dmg);
                         p.lastHitBy = proj.owner || 'ogre';
-                        const c = [...wss.clients].find(cl => cl.id === id);
+                        const c = getClient(id);
                         if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
                         if (p.hp <= 0 && proj.owner && players[proj.owner]) {
                             const killer = players[proj.owner];
-                            const kc = [...wss.clients].find(cl => cl.id === proj.owner);
+                            const kc = getClient(proj.owner);
                             levelUp(killer, kc);
                         }
                         if (proj.owner && players[proj.owner] && players[proj.owner].summonerSkills && players[proj.owner].summonerSkills['summoner-lockon']) {
@@ -2488,7 +2500,7 @@ function gameLoop() {
                             target.hp = Math.max(0, target.hp - dmg);
                             if (boar.target.type === 'player') {
                                 target.lastHitBy = 'boar';
-                                const c = [...wss.clients].find(cl => cl.id === boar.target.id);
+                                const c = getClient(boar.target.id);
                                 if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
                             } else {
                                 if (target.hp <= 0) {
@@ -2595,7 +2607,7 @@ function gameLoop() {
                             if (targetPlayer.fortify && targetPlayer.fortify > 0) dmg = Math.max(0, dmg - 2);
                             targetPlayer.hp = Math.max(0, targetPlayer.hp - dmg);
                             targetPlayer.lastHitBy = 'zombie';
-                            const c = [...wss.clients].find(cl => cl.id === targetPlayer.id);
+                            const c = getClient(targetPlayer.id);
                             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: targetPlayer.hp }));
                         }
                         zombie.cooldown = 60;
@@ -2654,7 +2666,7 @@ function gameLoop() {
                 else { zombie.vx = 0; zombie.vy = 0; }
                 if (dist < 50 && owner.hp < owner.maxHp && zombie.cooldown <= 0) {
                     owner.hp = Math.min(owner.maxHp, owner.hp + 1);
-                    const c = [...wss.clients].find(cl => cl.id === zombie.ownerId);
+                    const c = getClient(zombie.ownerId);
                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: owner.hp }));
                     zombie.cooldown = 60;
                 }
@@ -2754,7 +2766,7 @@ function gameLoop() {
                                 target.hp = Math.max(0, target.hp - dmg);
                                 if (zombie.target.type === 'player') {
                                     target.lastHitBy = 'zombie';
-                                    const c = [...wss.clients].find(cl => cl.id === zombie.target.id);
+                                    const c = getClient(zombie.target.id);
                                     if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
                                 } else {
                                     if (target.hp <= 0 && zombie.target.type === 'ogre') {
@@ -2834,7 +2846,7 @@ function gameLoop() {
                         p.hp = Math.max(0, p.hp - dmg);
                         if (t.type === 'player') {
                             p.lastHitBy = 'ogre';
-                            const c = [...wss.clients].find(cl => cl.id === t.id);
+                            const c = getClient(t.id);
                             if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
                         } else {
                             p.aggressive = true;
@@ -2939,7 +2951,7 @@ function gameLoop() {
                 target.bind = 60;
                 target.fortify = 0;
                 target.lastHitBy = 'mauler';
-                const c = [...wss.clients].find(cl => cl.id === target.id);
+                const c = getClient(target.id);
                 if (c) c.send(JSON.stringify({ type: 'player-hit', hp: target.hp }));
                 mauler.cooldown = 90;
             }
@@ -3002,7 +3014,7 @@ function gameLoop() {
             p.burn--;
             if (p.burn % 30 === 0 && (!p.invulnerable || p.invulnerable <= 0)) {
                 p.hp = Math.max(0, p.hp - 1);
-                const c = [...wss.clients].find(cl => cl.id === id);
+                const c = getClient(id);
                 if (c) c.send(JSON.stringify({ type: 'player-hit', hp: p.hp }));
             }
         }
@@ -3044,7 +3056,7 @@ function gameLoop() {
             p.invulnerable = 120;
             p.active = false;
             broadcast({ type: 'player-leave', playerId: id });
-            const c = [...wss.clients].find(cl => cl.id === id);
+            const c = getClient(id);
             if (c) c.send(JSON.stringify({ type: 'player-dead', cause: p.lastHitBy }));
             broadcast({ type: 'chat-message', sender: 'Server', message: `${p.name} died`, color: 'red' });
         }
