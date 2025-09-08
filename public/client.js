@@ -35,6 +35,7 @@ let boars = [];
 let zombies = [];
 let ogres = [];
 let frostWraiths = [];
+let titan = null;
 let groundItems = [];
 let projectiles = [];
 let explosions = [];
@@ -508,6 +509,7 @@ function getMouseTarget() {
     for (const zombie of zombies) check(zombie, 'zombie', zombie.id);
     for (const ogre of ogres) check(ogre, 'ogre', ogre.id);
     for (const w of frostWraiths) check(w, 'wraith', w.id);
+    if (titan) check(titan, 'titan', titan.id);
     return target;
 }
 
@@ -554,6 +556,7 @@ socket.onmessage = event => {
             zombies = data.zombies || [];
             ogres = data.ogres || [];
             frostWraiths = data.frostWraiths || [];
+            titan = data.titan || null;
             groundItems = data.groundItems || [];
             projectiles = data.projectiles || [];
             dayNight = data.dayNight || dayNight;
@@ -573,6 +576,7 @@ socket.onmessage = event => {
             zombies = data.zombies || zombies;
             ogres = data.ogres || ogres;
             frostWraiths = data.frostWraiths || frostWraiths;
+            titan = data.titan || titan;
             riftBlizzard = data.riftBlizzard || riftBlizzard;
             groundItems = data.groundItems || groundItems;
             projectiles = data.projectiles || projectiles;
@@ -662,6 +666,10 @@ socket.onmessage = event => {
         case 'wraith-update': {
             const idx = frostWraiths.findIndex(w => w.id === data.wraith.id);
             if (idx !== -1) frostWraiths[idx] = data.wraith; else frostWraiths.push(data.wraith);
+            break;
+        }
+        case 'titan-update': {
+            titan = data.titan;
             break;
         }
         case 'bomb-explode':
@@ -903,6 +911,11 @@ canvas.addEventListener('mousedown', e => {
         const dist = Math.hypot(mouseX - w.x, mouseY - w.y);
         if (dist < w.size && dist < wraithDist) { wraithDist = dist; closestWraith = w; }
     }
+    let closestTitan = null; let titanDist = Infinity;
+    if (titan) {
+        const dist = Math.hypot(mouseX - titan.x, mouseY - titan.y);
+        if (dist < titan.size && dist < titanDist) { titanDist = dist; closestTitan = titan; }
+    }
     let closestResource = null; let closestDist = Infinity;
     for (const resource of resources) {
         if (!resource.harvested) {
@@ -922,6 +935,9 @@ canvas.addEventListener('mousedown', e => {
         didAttack = true;
     } else if (closestOgre) {
         socket.send(JSON.stringify({ type: 'hit-ogre', ogreId: closestOgre.id, item: selectedItem ? selectedItem.item : null }));
+        didAttack = true;
+    } else if (closestTitan) {
+        socket.send(JSON.stringify({ type: 'hit-titan', item: selectedItem ? selectedItem.item : null }));
         didAttack = true;
     } else if (closestWraith) {
         socket.send(JSON.stringify({ type: 'hit-wraith', wraithId: closestWraith.id, item: selectedItem ? selectedItem.item : null }));
@@ -1265,6 +1281,36 @@ function drawOgre(ogre) {
     }
 }
 
+function drawTitan(t) {
+    drawShadow(t.x, t.y, t.size * 2, t.size);
+    ctx.save();
+    ctx.translate(t.x, t.y);
+    ctx.fillStyle = '#99d';
+    ctx.beginPath();
+    ctx.arc(0, 0, t.size, 0, Math.PI * 2);
+    ctx.fill();
+    if (t.phase >= 2 && !t.shield) {
+        ctx.fillStyle = '#0ff';
+        ctx.beginPath();
+        ctx.arc(0, 0, t.size * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    if (t.shield) {
+        ctx.strokeStyle = 'cyan';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(0, 0, t.size + 10, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.restore();
+    if (t.hp < t.maxHp) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(t.x - t.size, t.y - t.size - 10, t.size * 2, 6);
+        ctx.fillStyle = 'cyan';
+        ctx.fillRect(t.x - t.size, t.y - t.size - 10, (t.hp / t.maxHp) * t.size * 2, 6);
+    }
+}
+
 function drawFrostWraith(wraith) {
     drawShadow(wraith.x, wraith.y, wraith.size * 2, wraith.size);
     ctx.fillStyle = 'rgba(180,220,255,0.8)';
@@ -1422,6 +1468,7 @@ function render() {
     groundItems.forEach(drawGroundItem);
     boars.forEach(drawBoar);
     ogres.forEach(drawOgre);
+    if (titan) drawTitan(titan);
     frostWraiths.forEach(drawFrostWraith);
     projectiles.forEach(drawProjectile);
     explosions.forEach(ex => {

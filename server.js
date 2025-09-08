@@ -57,6 +57,8 @@ let iceMaulers = [];
 let nextIceMaulerId = 0;
 let cryoShamans = [];
 let nextCryoShamanId = 0;
+let glacierTitan = null;
+let nextTitanId = 0;
 let groundItems = [];
 let nextItemId = 0;
 let projectiles = [];
@@ -170,6 +172,11 @@ function generateWorld() {
         bossPos = getFreePosition();
     } while (bossPos.x > OLD_WORLD_WIDTH);
     zombies.push(createZombie(bossPos.x, bossPos.y, null, 'attack', 'big'));
+
+    // Spawn the Glacier Titan in the centre of the Glacial Rift.
+    const titanX = GLACIAL_RIFT_START_X + (GLACIAL_RIFT_END_X - GLACIAL_RIFT_START_X) / 2;
+    const titanY = WORLD_HEIGHT / 2;
+    glacierTitan = createGlacierTitan(titanX, titanY);
 }
 
 function createBoar(x, y) {
@@ -320,6 +327,27 @@ function spawnCryoShamans(count) {
     }
 }
 
+function createGlacierTitan(x, y) {
+    return {
+        id: nextTitanId++,
+        x,
+        y,
+        hp: 2000,
+        maxHp: 2000,
+        size: 100,
+        baseSpeed: 0.5,
+        speed: 0.5,
+        phase: 1,
+        shardCooldown: 0,
+        stompCooldown: 0,
+        wraithCooldown: 0,
+        shield: false,
+        shieldHp: 0,
+        vx: 0,
+        vy: 0
+    };
+}
+
 function generateGlacialRift() {
     for (let x = GLACIAL_RIFT_START_X; x < GLACIAL_RIFT_END_X; x += GRID_CELL_SIZE) {
         for (let y = 0; y < WORLD_HEIGHT; y += GRID_CELL_SIZE) {
@@ -433,6 +461,60 @@ function spawnOgres(count) {
     }
 }
 
+function updateGlacierTitan() {
+    if (!glacierTitan) return;
+    const t = glacierTitan;
+    if (t.hp <= 0) {
+        glacierTitan = null;
+        return;
+    }
+    if (t.phase === 1 && t.hp <= t.maxHp * 0.66) {
+        t.phase = 2;
+        t.shield = true;
+        t.shieldHp = 200;
+    }
+    if (t.phase === 2 && t.hp <= t.maxHp * 0.33) {
+        t.phase = 3;
+        t.shield = false;
+    }
+    const nearest = getNearestPlayer(t);
+    if (nearest) {
+        const target = nearest.player;
+        if (t.phase === 1) {
+            if (t.shardCooldown <= 0) {
+                const angle = Math.atan2(target.y - t.y, target.x - t.x);
+                const speed = 4;
+                projectiles.push({ id: nextProjectileId++, x: t.x, y: t.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, owner: null, type: 'arrow' });
+                t.shardCooldown = 90;
+            } else t.shardCooldown--;
+            if (t.stompCooldown <= 0) {
+                for (const id in players) {
+                    const p = players[id];
+                    if (!p.active) continue;
+                    const dist = getDistance(p, t);
+                    if (dist < 300) {
+                        const ang = Math.atan2(p.y - t.y, p.x - t.x);
+                        p.x += Math.cos(ang) * 100;
+                        p.y += Math.sin(ang) * 100;
+                    }
+                }
+                t.stompCooldown = 180;
+            } else t.stompCooldown--;
+        } else if (t.phase === 2) {
+            if (t.wraithCooldown <= 0) {
+                spawnFrostWraiths(2);
+                t.wraithCooldown = 300;
+            } else t.wraithCooldown--;
+        } else if (t.phase === 3) {
+            moveToward(t, target);
+        }
+    }
+    t.x = Math.max(GLACIAL_RIFT_START_X, Math.min(GLACIAL_RIFT_END_X, t.x + t.vx));
+    t.y = Math.max(0, Math.min(WORLD_HEIGHT, t.y + t.vy));
+    t.vx = 0;
+    t.vy = 0;
+}
+
 // --- Helpers & Game Logic ---
 function broadcast(data) { wss.clients.forEach(c => { if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify(data)); }); }
 function getActivePlayers() {
@@ -475,6 +557,7 @@ function findNearestTarget(src) {
     for (const wraith of frostWraiths) consider(wraith, 'wraith', wraith.id);
     for (const mauler of iceMaulers) consider(mauler, 'mauler', mauler.id);
     for (const shaman of cryoShamans) consider(shaman, 'shaman', shaman.id);
+    if (glacierTitan) consider(glacierTitan, 'titan', glacierTitan.id);
     return nearest;
 }
 // Count a player's items using an exact name match so crafted items
@@ -713,6 +796,12 @@ function getDamage(item, target) {
         if (name === 'tusk') return 6;
         if (name === 'mace') return 7;
         if (name.includes('axe') || name.includes('pickaxe')) return 2;
+    } else if (target === 'titan') {
+        if (name === 'wooden sword') return 2;
+        if (name === 'stone sword') return 4;
+        if (name === 'tusk') return 5;
+        if (name === 'mace') return 6;
+        if (name.includes('axe') || name.includes('pickaxe')) return 1;
     } else if (target === 'wraith') {
         if (name === 'wooden sword') return 3;
         if (name === 'stone sword') return 5;
@@ -976,6 +1065,7 @@ wss.on('connection', ws => {
         frostWraiths,
         iceMaulers,
         cryoShamans,
+        titan: glacierTitan,
         groundItems,
         projectiles,
         dayNight,
@@ -1203,6 +1293,27 @@ wss.on('connection', ws => {
                         levelUp(player, ws);
                     }
                     broadcast({ type: 'ogre-update', ogre });
+                }
+                break;
+            }
+            case 'hit-titan': {
+                if (glacierTitan && getDistance(player, glacierTitan) < player.size + glacierTitan.size + 20 + (player.attackRange || 0)) {
+                    if (glacierTitan.shield) {
+                        glacierTitan.shieldHp -= getDamage(data.item, 'titan');
+                        if (glacierTitan.shieldHp <= 0) glacierTitan.shield = false;
+                    } else {
+                        let dmg = getDamage(data.item, 'titan');
+                        if (player.class === 'knight' && data.item && data.item.toLowerCase().includes('sword')) {
+                            dmg += player.swordDamage || 0;
+                        }
+                        glacierTitan.hp -= dmg;
+                        if (glacierTitan.hp <= 0) {
+                            groundItems.push({ id: nextItemId++, item: 'Stone', quantity: 100, x: glacierTitan.x, y: glacierTitan.y });
+                            glacierTitan = null;
+                            levelUp(player, ws);
+                        }
+                    }
+                    broadcast({ type: 'titan-update', titan: glacierTitan });
                 }
                 break;
             }
@@ -2868,6 +2979,7 @@ function gameLoop() {
         }
     }
     cryoShamans = cryoShamans.filter(s => s.hp > 0);
+    updateGlacierTitan();
     for (const id in players) {
         const p = players[id];
         if (!p.active) continue;
@@ -2948,6 +3060,7 @@ function gameLoop() {
         frostWraiths,
         iceMaulers,
         cryoShamans,
+        titan: glacierTitan,
         groundItems,
         projectiles: projectiles.map(p => ({ ...p, stuckTo: undefined })),
         dayNight,
