@@ -139,6 +139,7 @@ const controlsScreen = document.getElementById('controls-screen');
 const controlsBtn = document.getElementById('controls-btn');
 const classScreen = document.getElementById('class-screen');
 const classButtons = document.querySelectorAll('.class-option');
+const languageToggle = document.getElementById('language-toggle');
 const levelIndicator = document.getElementById('level-indicator');
 const summonerBar = document.getElementById('summoner-bar');
 const abilityIndicator = document.getElementById('ability-indicator');
@@ -199,6 +200,330 @@ const rogueSkillNodes = [
     document.getElementById('skill-rogue-bow')
 ];
 const rogueSkillPrereqs = { 'rogue-smoke': 'rogue-bomb', 'rogue-sticky': 'rogue-bomb' };
+
+const translations = {
+    en: {
+        languageToggle: 'Français',
+        title: 'Survival Game',
+        placeholders: {
+            chat: 'Press Enter to chat...'
+        },
+        ui: {
+            levelLabel: 'Level',
+            skillPointsLabel: 'Points',
+            summonerBar: {
+                template: '{type}: {count} left',
+                types: {
+                    attack: 'Attack',
+                    healer: 'Healer',
+                    ranged: 'Ranged'
+                }
+            },
+            abilityIndicator: {
+                spell: 'Spell: {ability}',
+                ability: 'Ability: {ability}',
+                mage: { slow: 'Slow', bind: 'Bind', missile: 'Missile', flame: 'Flame' },
+                knight: { non: 'Non', dash: 'Dash', whirlwind: 'Whirlwind' },
+                rogue: { bomb: 'Bomb', smoke: 'Smoke', teleport: 'Teleport', bow: 'Bow' },
+                guardian: { 'shield-wall': 'Shield Wall', taunt: 'Taunt', fortify: 'Fortify' }
+            }
+        },
+        deathMessages: {
+            ogre: 'You were crushed by the Rock Monster',
+            default: 'You died at the hands of {cause}'
+        },
+        notifications: {
+            defeatRockGolem: 'Defeat the Rock Golem to enter the Ice Biome!',
+            respawnSet: 'Respawn point set!'
+        },
+        crafting: {
+            craftButton: 'Craft'
+        },
+        static: {
+            inventoryTitle: 'Inventory',
+            craftingTitle: 'Crafting',
+            furnaceTitle: 'Oven',
+            furnaceInputLabel: 'Input: ',
+            furnaceFuelLabel: 'Fuel: ',
+            furnaceCook: 'Cook',
+            controlsTitle: 'Controls',
+            controls: {
+                move: 'WASD - Move',
+                leftClick: 'Left Click - Attack/Interact',
+                rightClick: 'Right Click - Use/Place',
+                inventory: 'E - Inventory',
+                skillTree: 'Q - Skill Tree',
+                chat: 'Enter - Chat',
+                ability: 'Space - Class Ability',
+                scroll: 'Scroll - Change Ability/Spell',
+                continue: 'Continue'
+            },
+            chooseNameTitle: 'Choose your name',
+            customizeButton: 'Customize Character',
+            customization: {
+                color: 'Color',
+                eyeColor: 'Eye Color',
+                outlineColor: 'Outline Color',
+                mouthType: 'Mouth Type',
+                mouthLine: 'Line',
+                mouthSquare: 'Square',
+                mouthCircle: 'Circle',
+                mouthOval: 'Oval',
+                mouthDiamond: 'Diamond',
+                mouthTriangle: 'Triangle',
+                mouthColor: 'Mouth Color'
+            },
+            startButton: 'Start',
+            chooseClassTitle: 'Choose your class',
+            class: {
+                knight: 'Knight',
+                mage: 'Mage',
+                summoner: 'Summoner',
+                rogue: 'Rogue',
+                guardian: 'Guardian'
+            },
+            respawn: 'Start anew',
+            menu: 'Go to menu'
+        },
+        skills: {
+            range: 'Longer Range',
+            mage: 'Mage',
+            mageMana: 'More Mana',
+            mageRegen: 'Faster Mana Regen',
+            mageFlame: 'Flame Spell (Space)',
+            mageSlow: 'Slow Spell (Space)',
+            mageSlowExtend: 'Extend Slow to 10s',
+            mageBind: 'Binding Spell (Space)',
+            mageMissile: 'Missile Spell (Space)',
+            mageMissileUpgrade: 'Missile Upgrade',
+            knight: 'Knight',
+            knightDamage: 'Sword Damage',
+            knightSpeed: 'Speed',
+            knightHealth: 'Health',
+            knightShield: 'Dash (Space)',
+            knightWhirlwind: 'Whirlwind (Space)',
+            knightAttackRange: 'Attack Range',
+            summoner: 'Summoner',
+            summonerAttack: '+1 Attack Minion',
+            summonerHealer: '+1 Healer Minion',
+            summonerRanged: '+1 Ranged Minion',
+            summonerRangedStop: 'Ranged Hold',
+            summonerRangedFlee: 'Ranged Kite',
+            summonerLockOn: 'Lock On',
+            rogue: 'Rogue',
+            rogueBomb: 'Bomb (Space)',
+            rogueSticky: 'Sticky Bomb',
+            rogueSmoke: 'Smoke Bomb (Space)',
+            rogueTeleport: 'Teleport (Space)',
+            rogueBow: 'Bow Mastery'
+        }
+    },
+    fr: {
+        languageToggle: 'English',
+        title: 'Jeu de Survie',
+        placeholders: {
+            chat: 'Appuyez sur Entrée pour discuter...'
+        },
+        ui: {
+            levelLabel: 'Niveau',
+            skillPointsLabel: 'Points',
+            summonerBar: {
+                template: '{type} : {count} restants',
+                types: {
+                    attack: 'Attaque',
+                    healer: 'Soigneur',
+                    ranged: 'À distance'
+                }
+            },
+            abilityIndicator: {
+                spell: 'Sort : {ability}',
+                ability: 'Capacité : {ability}',
+                mage: { slow: 'Ralentissement', bind: 'Lien', missile: 'Projectile', flame: 'Flamme' },
+                knight: { non: 'Aucune', dash: 'Ruée', whirlwind: 'Tourbillon' },
+                rogue: { bomb: 'Bombe', smoke: 'Bombe fumigène', teleport: 'Téléportation', bow: 'Arc' },
+                guardian: { 'shield-wall': 'Mur de boucliers', taunt: 'Provocation', fortify: 'Fortifier' }
+            }
+        },
+        deathMessages: {
+            ogre: 'Vous avez été écrasé par le monstre de pierre',
+            default: 'Vous êtes mort aux mains de {cause}'
+        },
+        notifications: {
+            defeatRockGolem: 'Vainquez le golem de pierre pour entrer dans le biome glacé !',
+            respawnSet: 'Point de réapparition défini !'
+        },
+        crafting: {
+            craftButton: 'Fabriquer'
+        },
+        static: {
+            inventoryTitle: 'Inventaire',
+            craftingTitle: 'Artisanat',
+            furnaceTitle: 'Four',
+            furnaceInputLabel: 'Entrée : ',
+            furnaceFuelLabel: 'Carburant : ',
+            furnaceCook: 'Cuire',
+            controlsTitle: 'Commandes',
+            controls: {
+                move: 'ZQSD - Se déplacer',
+                leftClick: 'Clic gauche - Attaquer/Interagir',
+                rightClick: 'Clic droit - Utiliser/Poser',
+                inventory: 'E - Inventaire',
+                skillTree: 'Q - Arbre de compétences',
+                chat: 'Entrée - Discussion',
+                ability: 'Espace - Capacité de classe',
+                scroll: 'Molette - Changer de capacité/sort',
+                continue: 'Continuer'
+            },
+            chooseNameTitle: 'Choisissez votre nom',
+            customizeButton: 'Personnaliser le personnage',
+            customization: {
+                color: 'Couleur',
+                eyeColor: 'Couleur des yeux',
+                outlineColor: 'Couleur du contour',
+                mouthType: 'Type de bouche',
+                mouthLine: 'Ligne',
+                mouthSquare: 'Carré',
+                mouthCircle: 'Cercle',
+                mouthOval: 'Ovale',
+                mouthDiamond: 'Losange',
+                mouthTriangle: 'Triangle',
+                mouthColor: 'Couleur de la bouche'
+            },
+            startButton: 'Commencer',
+            chooseClassTitle: 'Choisissez votre classe',
+            class: {
+                knight: 'Chevalier',
+                mage: 'Mage',
+                summoner: 'Invocateur',
+                rogue: 'Voleur',
+                guardian: 'Gardien'
+            },
+            respawn: 'Recommencer',
+            menu: 'Retour au menu'
+        },
+        skills: {
+            range: 'Portée accrue',
+            mage: 'Mage',
+            mageMana: 'Plus de mana',
+            mageRegen: 'Régénération de mana accrue',
+            mageFlame: 'Sort de flamme (Espace)',
+            mageSlow: 'Sort de ralentissement (Espace)',
+            mageSlowExtend: 'Ralentissement prolongé à 10 s',
+            mageBind: 'Sort d’immobilisation (Espace)',
+            mageMissile: 'Sort de projectile (Espace)',
+            mageMissileUpgrade: 'Amélioration des projectiles',
+            knight: 'Chevalier',
+            knightDamage: 'Dégâts de l’épée',
+            knightSpeed: 'Vitesse',
+            knightHealth: 'Santé',
+            knightShield: 'Ruée (Espace)',
+            knightWhirlwind: 'Tourbillon (Espace)',
+            knightAttackRange: 'Portée d’attaque',
+            summoner: 'Invocateur',
+            summonerAttack: '+1 serviteur attaquant',
+            summonerHealer: '+1 serviteur guérisseur',
+            summonerRanged: '+1 serviteur à distance',
+            summonerRangedStop: 'Tenir la position à distance',
+            summonerRangedFlee: 'Repli à distance',
+            summonerLockOn: 'Verrouillage',
+            rogue: 'Voleur',
+            rogueBomb: 'Bombe (Espace)',
+            rogueSticky: 'Bombe collante',
+            rogueSmoke: 'Bombe fumigène (Espace)',
+            rogueTeleport: 'Téléportation (Espace)',
+            rogueBow: 'Maîtrise de l’arc'
+        }
+    }
+};
+
+let currentLanguage = 'en';
+
+function getTranslationValue(key, lang = currentLanguage) {
+    const parts = key.split('.');
+    let value = translations[lang];
+    for (const part of parts) {
+        if (value && typeof value === 'object' && part in value) {
+            value = value[part];
+        } else {
+            return undefined;
+        }
+    }
+    return value;
+}
+
+function t(key, replacements = {}) {
+    let template = getTranslationValue(key, currentLanguage);
+    if (template === undefined && currentLanguage !== 'en') {
+        template = getTranslationValue(key, 'en');
+    }
+    if (template === undefined) return key;
+    if (typeof template === 'string') {
+        return template.replace(/\{(\w+)\}/g, (match, token) => (
+            Object.prototype.hasOwnProperty.call(replacements, token) ? replacements[token] : match
+        ));
+    }
+    return template;
+}
+
+function applyStaticTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(elem => {
+        const text = t(elem.dataset.i18n);
+        if (typeof text === 'string') {
+            elem.textContent = text;
+        }
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(elem => {
+        const text = t(elem.dataset.i18nPlaceholder);
+        if (typeof text === 'string') {
+            elem.setAttribute('placeholder', text);
+        }
+    });
+}
+
+function setLanguage(lang) {
+    if (!translations[lang]) lang = 'en';
+    currentLanguage = lang;
+    document.documentElement.lang = lang;
+    applyStaticTranslations();
+    document.title = t('title');
+    if (languageToggle) {
+        languageToggle.textContent = t('languageToggle');
+    }
+    if (inventoryScreen && !inventoryScreen.classList.contains('hidden')) {
+        updateInventoryUI();
+        updateCraftingUI();
+    }
+    if (furnaceScreen && !furnaceScreen.classList.contains('hidden')) {
+        updateFurnaceUI();
+    }
+    updateLevelUI();
+    updateSummonerBar();
+    updateAbilityIndicator();
+    try {
+        localStorage.setItem('language', lang);
+    } catch (err) {
+        // ignore storage errors
+    }
+}
+
+if (languageToggle) {
+    languageToggle.addEventListener('click', () => {
+        const next = currentLanguage === 'en' ? 'fr' : 'en';
+        setLanguage(next);
+    });
+}
+
+let initialLanguage = 'en';
+try {
+    const savedLang = localStorage.getItem('language');
+    if (savedLang && translations[savedLang]) {
+        initialLanguage = savedLang;
+    }
+} catch (err) {
+    initialLanguage = 'en';
+}
+
+setLanguage(initialLanguage);
 
 function renderMouth(ctx, x, y, size, type, color) {
     ctx.fillStyle = color;
@@ -384,8 +709,16 @@ function updateAttackBar() {
 function updateLevelUI() {
     const me = players[myPlayerId];
     if (!me) return;
-    if (levelIndicator) levelIndicator.textContent = `Level: ${me.level || 1}`;
-    if (skillPointsElem) skillPointsElem.textContent = `Points: ${me.skillPoints || 0}`;
+    if (levelIndicator) {
+        const labelKey = levelIndicator.dataset.i18nLabel || 'ui.levelLabel';
+        const levelLabel = t(labelKey);
+        levelIndicator.textContent = `${levelLabel}: ${me.level || 1}`;
+    }
+    if (skillPointsElem) {
+        const labelKey = skillPointsElem.dataset.i18nLabel || 'ui.skillPointsLabel';
+        const pointsLabel = t(labelKey);
+        skillPointsElem.textContent = `${pointsLabel}: ${me.skillPoints || 0}`;
+    }
     if (rangeNode) {
         const unlocked = me.skills && me.skills.range;
         rangeNode.classList.toggle('unlocked', unlocked);
@@ -441,8 +774,13 @@ function updateSummonerBar() {
     const owned = zombies.filter(z => z.ownerId === myPlayerId && z.minionType === summonerSpawnType).length;
     const max = me.summonerSkills[summonerSpawnType] || 0;
     const remaining = Math.max(0, max - owned);
-    const label = summonerSpawnType.charAt(0).toUpperCase() + summonerSpawnType.slice(1);
-    summonerBar.textContent = `${label}: ${remaining} left`;
+    const typeLabel = t(`ui.summonerBar.types.${summonerSpawnType}`);
+    const status = t('ui.summonerBar.template', { type: typeof typeLabel === 'string' ? typeLabel : summonerSpawnType, count: remaining });
+    if (typeof status === 'string') {
+        summonerBar.textContent = status;
+    } else {
+        summonerBar.textContent = `${typeLabel || summonerSpawnType}: ${remaining}`;
+    }
     summonerBar.classList.remove('hidden');
 }
 
@@ -459,16 +797,20 @@ function updateAbilityIndicator() {
         if (me.canMissile) spells.push('missile');
         if (me.canFlame) spells.push('flame');
         if (!spells.includes(selectedMageSpell)) selectedMageSpell = spells[0];
-        const labelMap = { slow: 'Slow', bind: 'Bind', missile: 'Missile', flame: 'Flame' };
-        abilityIndicator.textContent = `Spell: ${labelMap[selectedMageSpell]}`;
+        const labelMap = t('ui.abilityIndicator.mage') || {};
+        const abilityName = labelMap[selectedMageSpell] || selectedMageSpell;
+        const label = t('ui.abilityIndicator.spell', { ability: abilityName });
+        abilityIndicator.textContent = typeof label === 'string' ? label : `Spell: ${abilityName}`;
         abilityIndicator.classList.remove('hidden');
     } else if (me.class === 'knight' && me.knightSkills && (me.knightSkills['knight-shield'] || me.knightSkills['knight-whirlwind'])) {
         const abilities = ['non'];
         if (me.knightSkills['knight-shield']) abilities.push('dash');
         if (me.knightSkills['knight-whirlwind']) abilities.push('whirlwind');
         if (!abilities.includes(selectedKnightAbility)) selectedKnightAbility = abilities[0];
-        const labelMap = { non: 'Non', dash: 'Dash', whirlwind: 'Whirlwind' };
-        abilityIndicator.textContent = `Ability: ${labelMap[selectedKnightAbility]}`;
+        const labelMap = t('ui.abilityIndicator.knight') || {};
+        const abilityName = labelMap[selectedKnightAbility] || selectedKnightAbility;
+        const label = t('ui.abilityIndicator.ability', { ability: abilityName });
+        abilityIndicator.textContent = typeof label === 'string' ? label : `Ability: ${abilityName}`;
         abilityIndicator.classList.remove('hidden');
     } else if (me.class === 'rogue') {
         const abilities = [];
@@ -478,8 +820,10 @@ function updateAbilityIndicator() {
         if (me.rogueSkills && me.rogueSkills['rogue-bow']) abilities.push('bow');
         if (abilities.length > 0) {
             if (!abilities.includes(selectedRogueAbility)) selectedRogueAbility = abilities[0];
-            const labelMap = { bomb: 'Bomb', smoke: 'Smoke', teleport: 'Teleport', bow: 'Bow' };
-            abilityIndicator.textContent = `Ability: ${labelMap[selectedRogueAbility]}`;
+            const labelMap = t('ui.abilityIndicator.rogue') || {};
+            const abilityName = labelMap[selectedRogueAbility] || selectedRogueAbility;
+            const label = t('ui.abilityIndicator.ability', { ability: abilityName });
+            abilityIndicator.textContent = typeof label === 'string' ? label : `Ability: ${abilityName}`;
             abilityIndicator.classList.remove('hidden');
         } else {
             abilityIndicator.classList.add('hidden');
@@ -487,8 +831,10 @@ function updateAbilityIndicator() {
     } else if (me.class === 'guardian') {
         const abilities = ['shield-wall', 'taunt', 'fortify'];
         if (!abilities.includes(selectedGuardianAbility)) selectedGuardianAbility = abilities[0];
-        const labelMap = { 'shield-wall': 'Shield Wall', taunt: 'Taunt', fortify: 'Fortify' };
-        abilityIndicator.textContent = `Ability: ${labelMap[selectedGuardianAbility]}`;
+        const labelMap = t('ui.abilityIndicator.guardian') || {};
+        const abilityName = labelMap[selectedGuardianAbility] || selectedGuardianAbility;
+        const label = t('ui.abilityIndicator.ability', { ability: abilityName });
+        abilityIndicator.textContent = typeof label === 'string' ? label : `Ability: ${abilityName}`;
         abilityIndicator.classList.remove('hidden');
     } else {
         abilityIndicator.classList.add('hidden');
@@ -686,8 +1032,8 @@ socket.onmessage = event => {
             preSpawn = true;
             if (deathMessage) {
                 const cause = data.cause || 'unknown';
-                if (cause === 'ogre') deathMessage.textContent = 'You were crushed by the Rock Monster';
-                else deathMessage.textContent = `You died at the hands of ${cause}`;
+                if (cause === 'ogre') deathMessage.textContent = t('deathMessages.ogre');
+                else deathMessage.textContent = t('deathMessages.default', { cause });
             }
             if (deathScreen) deathScreen.classList.remove('hidden');
             break;
@@ -721,7 +1067,8 @@ function updateCraftingUI() {
         recipeEl.className = 'recipe';
         if (!canCraft) recipeEl.classList.add('disabled');
         const displayName = recipe.amount ? `${recipeName} x${recipe.amount}` : recipeName;
-        recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${displayName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>Craft</button>`;
+        const craftLabel = t('crafting.craftButton');
+        recipeEl.innerHTML = `<div class="recipe-icon" style="background-image: url('/icons/${recipe.icon}')"></div><div class="recipe-details"><div class="recipe-name">${displayName}</div><div class="recipe-cost">${costString.trim()}</div></div><button>${craftLabel}</button>`;
         if (canCraft) {
             recipeEl.querySelector('button').onclick = () => { socket.send(JSON.stringify({ type: 'craft-item', itemName: recipeName })); };
         }
@@ -877,7 +1224,7 @@ function playerMovement() {
     if (!collision && !rockBossDefeated && predictedX >= GLACIAL_RIFT_START_X - player.size) {
         collision = true;
         if (gateWarning <= 0) {
-            showNotification('Defeat the Rock Golem to enter the Ice Biome!');
+            showNotification(t('notifications.defeatRockGolem'));
             gateWarning = 60;
         }
     }
@@ -1017,7 +1364,7 @@ canvas.addEventListener('contextmenu', e => {
                     return;
                 } else if (s.type === 'bed') {
                     socket.send(JSON.stringify({ type: 'sleep-bed', key }));
-                    showNotification('Respawn point set!');
+                    showNotification(t('notifications.respawnSet'));
                     return;
                 }
             }
